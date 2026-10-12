@@ -2,6 +2,7 @@ const vm=require('vm'),fs=require('fs'),assert=require('assert'),crypto=require(
 const store={},cache={};let seq=0,failSheet='';
 class Sheet {
  constructor(name,rows){this.name=name;this.rows=rows;}
+ insertRowsAfter(after,count){this.rows.splice(after,0,...Array.from({length:count},()=>[]));return this}
  getName(){return this.name} getLastRow(){return this.rows.length}
  getDataRange(){return {getValues:()=>this.rows.map(r=>[...r]),getDisplayValues:()=>this.rows.map(r=>r.map(String))}}
  getRange(row,col,nr=1,nc=1){const sh=this;return {getValues:()=>Array.from({length:nr},(_,i)=>Array.from({length:nc},(_,j)=>sh.rows[row+i-1]?.[col+j-1]??'')),setValue(v){return this.setValues([[v]])},setValues(values){if(failSheet===sh.name)throw new Error('injected write failure');values.forEach((r,i)=>r.forEach((v,j)=>{sh.rows[row+i-1]??=[];sh.rows[row+i-1][col+j-1]=v}));return this}}}
@@ -59,3 +60,9 @@ test('poster ordering rejects invalid boundary without edits',()=>{const h=f.get
 test('member login again returns full financial details before opening',()=>{const r=f.loginMember({phone:member[2],mid:'SECRET',deferred:true});assert.ok(Array.isArray(r.member.history));assert.equal(r.corePending,undefined);assert.ok(r.token)});
 test('drag ordering places a poster directly in any requested position',()=>{let h=f.getHighlights();const order=h.map(x=>x.index);order.unshift(order.pop());const expected=h[h.length-1].heading;const r=f.reorderHighlights(order,h[0].version);assert.equal(r.success,true);assert.equal(r.highlights[0].heading,expected);assert.equal(f.getMemberData(member[2],member[0],true).highlights[0].heading,expected)});
 test('drag ordering rejects missing/duplicate rows and stale versions',()=>{const h=f.getHighlights();assert.ok(f.reorderHighlights([h[0].index,h[0].index],h[0].version).error);assert.ok(f.reorderHighlights(h.map(x=>x.index),'stale').error)});
+
+test('every newly added poster appears first and preserves existing order',()=>{
+ const previous=f.getHighlights().map(h=>h.heading);
+ let result=f.addHighlight('New poster A','https://example.org/new-a.png','');assert.equal(result.success,true);assert.equal(result.highlights[0].heading,'New poster A');assert.deepEqual(result.highlights.slice(1).map(h=>h.heading),previous);
+ result=f.addHighlight('New poster B','https://example.org/new-b.png','');assert.equal(result.highlights[0].heading,'New poster B');assert.equal(result.highlights[1].heading,'New poster A');assert.equal(f.getMemberData(member[2],member[0],true).highlights[0].heading,'New poster B');
+});
