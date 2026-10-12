@@ -192,7 +192,7 @@ function checkPendingApprovals() {
 
 
 // ഡാറ്റാബേസിൽ നിന്ന് ഫോൺ നമ്പറും MID-യും പരിശോധിക്കുന്ന ഫംഗ്ഷൻ
-function getMemberDataSnapshot(userPhone, inputMid, lookupOnly = false, recordLogin = false) {
+function getMemberDataSnapshot(userPhone, inputMid, lookupOnly = false, recordLogin = false, deferHighlights = false) {
   try {
     const ss = getSS();
     const config = getAppSettings();
@@ -325,7 +325,7 @@ function getMemberDataSnapshot(userPhone, inputMid, lookupOnly = false, recordLo
     const totalMembersCount = dbData.length - 1;
 
     // --- ഹൈലൈറ്റുകൾ (താങ്കളുടെ ഒറിജിനൽ) ---
-    const highlightsSheet = ss.getSheetByName('Highlights');
+    const highlightsSheet = deferHighlights ? null : ss.getSheetByName('Highlights');
     const highlightsData = highlightsSheet ? highlightsSheet.getDataRange().getValues().slice(1) : [];
     const highlights = highlightsData.map(h => ({
       heading: h[0], url: h[1], desc: h[2]
@@ -444,7 +444,7 @@ function processAdminBulkAction(actionType) {
 
 
 // IN-MEMORY FAST ADMIN DATA
-function getAdminDataSnapshot() {
+function getAdminDataSnapshot(deferHighlights=false) {
   try {
     const ss = getSS();
     const config = getAppSettings();
@@ -687,7 +687,7 @@ function getAdminDataSnapshot() {
 
 
     let campaigns = [];
-    return { totalCollected: grandTotal, totalPending: grandPending, members: adminMembers, approvals: approvals, config: config, highlights: getHighlights(), campaigns: campaigns };
+    return { totalCollected: grandTotal, totalPending: grandPending, members: adminMembers, approvals: approvals, config: config, highlights: deferHighlights?[]:getHighlights(), campaigns: campaigns };
   } catch (e) {
     return { error: "അഡ്മിൻ ഡാറ്റ ലഭ്യമാക്കുന്നതിൽ പിഴവ്: " + e.message };
   }
@@ -701,6 +701,7 @@ function getHighlights() {
     if (!highlightsSheet) return [];
     const highlightsData = highlightsSheet.getDataRange().getValues().slice(1);
     return highlightsData.map((h, index) => ({
+      version:sha256(JSON.stringify(highlightsData)),
       index: index, // 0-based data index
       heading: h[0] ? String(h[0]).trim() : "",
       url: h[1] ? String(h[1]).trim() : "",
@@ -732,7 +733,7 @@ function uploadPosterPhoto(base64Data, mimeType, fileName) {
 }
 
 // ഹൈലൈറ്റ് ഷീറ്റിലേക്ക് പുതിയ പോസ്റ്റർ ചേർക്കാൻ
-function addHighlight(heading,url,desc) {
+function addHighlightWrite(heading,url,desc) {
   try {
     if(!/^https:\/\//i.test(String(url||'')))throw new Error('Poster URL must use HTTPS');
     const title=safeSheetText(heading,200),caption=safeSheetText(desc,4000);
@@ -741,7 +742,7 @@ function addHighlight(heading,url,desc) {
   } catch(e){return {error:e.message};}
 }
 
-function deleteHighlight(index) {
+function deleteHighlightWrite(index) {
   try {
     const ss = getSS();
     let sheet = ss.getSheetByName('Highlights');
@@ -856,10 +857,11 @@ function doPost(e) {
     } else {
       const session=requireSession(req.token);
       const memberId=session.role==='member'?session.id:data.id;
-      const adminActions=['getAdminData','approvePayment','rejectPayment','recordOfflinePayment','processAdminBulkAction','sendDefaulterEmails','sendPushNotification','sendWhatsAppMedia','sendWhatsAppText','uploadPosterPhoto','addHighlight','deleteHighlight','checkAndGetDefaulters','getWhatsAppQueueStatus','retryFailedWhatsAppJobs','inspectTrackerReadiness'];
+      const adminActions=['getAdminData','approvePayment','rejectPayment','recordOfflinePayment','processAdminBulkAction','sendDefaulterEmails','sendPushNotification','sendWhatsAppMedia','sendWhatsAppText','uploadPosterPhoto','addHighlight','deleteHighlight','moveHighlight','checkAndGetDefaulters','getWhatsAppQueueStatus','retryFailedWhatsAppJobs','inspectTrackerReadiness'];
       if(adminActions.includes(action)&&session.role!=='admin')throw new Error('FORBIDDEN');
-      if(action==='getMemberData'){const r=memberRecord(memberId);result=getMemberData(r.row[2],memberId,true,false);}
-      else if(action==='getAdminData')result=getAdminData();
+      if(action==='getMemberData'){const r=memberRecord(memberId);result=getMemberData(r.row[2],memberId,true,false,!!data.deferred);}
+      else if(action==='getAdminData')result=getAdminData(!!data.deferHighlights);
+      else if(action==='getHighlights')result={success:true,highlights:getHighlights()};
       else if(action==='getDirectoryData')result=getDirectoryData();
       else if(action==='submitSinglePaymentRequest')result=submitPaymentRequests(memberId,[{year:data.year,month:data.month}],false);
       else if(action==='submitBulkPaymentRequest')result=submitPaymentRequests(memberId,data.targetData,true);
@@ -888,6 +890,7 @@ function doPost(e) {
       else if(action==='uploadPosterPhoto')result=uploadPosterPhoto(data.base64,data.mimeType,data.fileName);
       else if(action==='addHighlight')result=addHighlight(data.heading,data.url,data.desc);
       else if(action==='deleteHighlight')result=deleteHighlight(data.index);
+      else if(action==='moveHighlight')result=moveHighlight(data.index,data.direction,data.version);
       else if(action==='checkAndGetDefaulters')result=checkAndGetDefaulters();
       else if(action==='inspectTrackerReadiness')result=inspectTrackerReadiness();
       else if(action==='getWhatsAppQueueStatus')result=getWhatsAppQueueStatus();
@@ -1412,7 +1415,8 @@ function loginMember(data) {
   const row=rows.slice(1).find(r=>cleanPhone(r[2])===phone&&String(r[16]||r[0]).trim().toUpperCase()===credential);
   loginRateCheck('member:'+phone,!!row);
   if(!row)throw new Error('Phone or MID/password is incorrect');
-  return {success:true,token:issueSession('member',String(row[0])),member:getMemberData(row[2],row[0],true,true)};
+  recordMemberLogin(row);
+  return {success:true,token:issueSession('member',String(row[0])),corePending:!!data.deferred,member:data.deferred?{id:row[0],name:row[1]}:getMemberData(row[2],row[0],true,false)};
 }
 
 
@@ -1584,13 +1588,13 @@ function reconcilePaymentOperations() {
   });
 }
 
-function getMemberData(userPhone,inputMid,lookupOnly=false,recordLogin=false) {
+function getMemberData(userPhone,inputMid,lookupOnly=false,recordLogin=false,deferHighlights=false) {
   const lock=LockService.getScriptLock();lock.waitLock(10000);
-  try {reconcilePaymentOperations();return getMemberDataSnapshot(userPhone,inputMid,lookupOnly,recordLogin);}finally{lock.releaseLock();}
+  try {reconcilePaymentOperations();return getMemberDataSnapshot(userPhone,inputMid,lookupOnly,recordLogin,deferHighlights);}finally{lock.releaseLock();}
 }
-function getAdminData() {
+function getAdminData(deferHighlights=false) {
   const lock=LockService.getScriptLock();lock.waitLock(10000);
-  try {reconcilePaymentOperations();return getAdminDataSnapshot();}finally{lock.releaseLock();}
+  try {reconcilePaymentOperations();return getAdminDataSnapshot(deferHighlights);}finally{lock.releaseLock();}
 }
 
 function repairPaymentNotifications() {
@@ -1627,4 +1631,26 @@ function reconcileYearTrackers() {
     });
     SpreadsheetApp.flush();return {success:true,added:added,readiness:inspectTrackerReadiness()};
   }finally{lock.releaseLock();}
+}
+
+function moveHighlight(index,direction,version) {
+  const lock=LockService.getScriptLock();lock.waitLock(10000);
+  try {
+    const sheet=getSS().getSheetByName('Highlights');if(!sheet)throw new Error('Highlights sheet not found');
+    const rows=sheet.getDataRange().getValues(),data=rows.slice(1);
+    if(!version||version!==sha256(JSON.stringify(data)))throw new Error('Poster list changed. Refresh and try again.');
+    index=Number(index);direction=Number(direction);const next=index+direction;
+    if(!Number.isInteger(index)||![-1,1].includes(direction)||index<0||index>=data.length||next<0||next>=data.length)throw new Error('Invalid poster position');
+    const first=Math.min(index,next),width=Math.max(data[index].length,data[next].length);
+    const pair=[data[next],data[index]];if(direction<0)pair.reverse();
+    sheet.getRange(first+2,1,2,width).setValues(pair.map(r=>Array.from({length:width},(_,i)=>r[i]===undefined?'':r[i])));
+    SpreadsheetApp.flush();return {success:true,highlights:getHighlights()};
+  }catch(e){return {error:e.message};}finally{lock.releaseLock();}
+}
+
+function addHighlight(heading,url,desc){const lock=LockService.getScriptLock();lock.waitLock(10000);try{return addHighlightWrite(heading,url,desc);}finally{lock.releaseLock();}}
+function deleteHighlight(index){const lock=LockService.getScriptLock();lock.waitLock(10000);try{return deleteHighlightWrite(index);}finally{lock.releaseLock();}}
+
+function recordMemberLogin(member){
+  try{const sheet=getSS().getSheetByName('Login_Logs');if(!sheet)return;const phone=cleanPhone(member[2]),rows=sheet.getDataRange().getValues();const index=rows.findIndex((r,i)=>i>0&&cleanPhone(r[0])===phone);if(index>0){sheet.getRange(index+1,3,1,2).setValues([[new Date(),Number(rows[index][3]||0)+1]]);}else sheet.appendRow([phone,member[1],new Date(),1]);}catch(e){Logger.log('Login statistics could not be updated');}
 }
