@@ -738,7 +738,10 @@ function addHighlightWrite(heading,url,desc) {
     if(!/^https:\/\//i.test(String(url||'')))throw new Error('Poster URL must use HTTPS');
     const title=safeSheetText(heading,200),caption=safeSheetText(desc,4000);
     let sheet=getSS().getSheetByName('Highlights');if(!sheet){sheet=getSS().insertSheet('Highlights');sheet.appendRow(['Heading','Poster_URL','Caption']);}
-    sheet.appendRow([title,url,caption]);return {success:true,highlights:getHighlights()};
+    sheet.insertRowsAfter(1,1);
+    sheet.getRange(2,1,1,3).setValues([[title,url,caption]]);
+    SpreadsheetApp.flush();
+    return {success:true,highlights:getHighlights()};
   } catch(e){return {error:e.message};}
 }
 
