@@ -857,7 +857,7 @@ function doPost(e) {
     } else {
       const session=requireSession(req.token);
       const memberId=session.role==='member'?session.id:data.id;
-      const adminActions=['getAdminData','approvePayment','rejectPayment','recordOfflinePayment','processAdminBulkAction','sendDefaulterEmails','sendPushNotification','sendWhatsAppMedia','sendWhatsAppText','uploadPosterPhoto','addHighlight','deleteHighlight','moveHighlight','checkAndGetDefaulters','getWhatsAppQueueStatus','retryFailedWhatsAppJobs','inspectTrackerReadiness'];
+      const adminActions=['getAdminData','approvePayment','rejectPayment','recordOfflinePayment','processAdminBulkAction','sendDefaulterEmails','sendPushNotification','sendWhatsAppMedia','sendWhatsAppText','uploadPosterPhoto','addHighlight','deleteHighlight','moveHighlight','reorderHighlights','checkAndGetDefaulters','getWhatsAppQueueStatus','retryFailedWhatsAppJobs','inspectTrackerReadiness'];
       if(adminActions.includes(action)&&session.role!=='admin')throw new Error('FORBIDDEN');
       if(action==='getMemberData'){const r=memberRecord(memberId);result=getMemberData(r.row[2],memberId,true,false,!!data.deferred);}
       else if(action==='getAdminData')result=getAdminData(!!data.deferHighlights);
@@ -890,6 +890,7 @@ function doPost(e) {
       else if(action==='uploadPosterPhoto')result=uploadPosterPhoto(data.base64,data.mimeType,data.fileName);
       else if(action==='addHighlight')result=addHighlight(data.heading,data.url,data.desc);
       else if(action==='deleteHighlight')result=deleteHighlight(data.index);
+      else if(action==='reorderHighlights')result=reorderHighlights(data.order,data.version);
       else if(action==='moveHighlight')result=moveHighlight(data.index,data.direction,data.version);
       else if(action==='checkAndGetDefaulters')result=checkAndGetDefaulters();
       else if(action==='inspectTrackerReadiness')result=inspectTrackerReadiness();
@@ -1415,8 +1416,7 @@ function loginMember(data) {
   const row=rows.slice(1).find(r=>cleanPhone(r[2])===phone&&String(r[16]||r[0]).trim().toUpperCase()===credential);
   loginRateCheck('member:'+phone,!!row);
   if(!row)throw new Error('Phone or MID/password is incorrect');
-  recordMemberLogin(row);
-  return {success:true,token:issueSession('member',String(row[0])),corePending:!!data.deferred,member:data.deferred?{id:row[0],name:row[1]}:getMemberData(row[2],row[0],true,false)};
+  return {success:true,token:issueSession('member',String(row[0])),member:getMemberData(row[2],row[0],true,true)};
 }
 
 
@@ -1653,4 +1653,19 @@ function deleteHighlight(index){const lock=LockService.getScriptLock();lock.wait
 
 function recordMemberLogin(member){
   try{const sheet=getSS().getSheetByName('Login_Logs');if(!sheet)return;const phone=cleanPhone(member[2]),rows=sheet.getDataRange().getValues();const index=rows.findIndex((r,i)=>i>0&&cleanPhone(r[0])===phone);if(index>0){sheet.getRange(index+1,3,1,2).setValues([[new Date(),Number(rows[index][3]||0)+1]]);}else sheet.appendRow([phone,member[1],new Date(),1]);}catch(e){Logger.log('Login statistics could not be updated');}
+}
+
+function reorderHighlights(order,version){
+ const lock=LockService.getScriptLock();lock.waitLock(10000);
+ try{
+  const sheet=getSS().getSheetByName('Highlights');if(!sheet)throw new Error('Highlights sheet not found');
+  const data=sheet.getDataRange().getValues().slice(1);
+  if(version!==sha256(JSON.stringify(data)))throw new Error('Poster list changed. Refresh and try again.');
+  const visible=data.map((r,i)=>({r:r,i:i})).filter(x=>String(x.r[1]||'').trim()!=='').map(x=>x.i);
+  if(!Array.isArray(order)||order.length!==visible.length||new Set(order).size!==order.length||order.some(i=>!Number.isInteger(i)||!visible.includes(i)))throw new Error('Invalid poster order');
+  const result=data.map(r=>r.slice());visible.forEach((slot,i)=>result[slot]=data[order[i]].slice());
+  const width=Math.max.apply(null,data.map(r=>r.length));
+  if(result.length)sheet.getRange(2,1,result.length,width).setValues(result.map(r=>Array.from({length:width},(_,i)=>r[i]===undefined?'':r[i])));
+  SpreadsheetApp.flush();return {success:true,highlights:getHighlights()};
+ }catch(e){return {error:e.message};}finally{lock.releaseLock();}
 }
