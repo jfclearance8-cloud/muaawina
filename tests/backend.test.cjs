@@ -48,3 +48,12 @@ test('offline partial write recovery prevents missing ledger row',()=>{
  failSheet='Approval_Queue';assert.throws(()=>f.recordOfflinePaymentSafe('M101',[{year:'2026',month:'Jul'}]));failSheet='';
  f.getMemberData(member[2],member[0],true);const rows=sheets.Approval_Queue.rows.filter(r=>r[5]==='Jul');assert.equal(rows.length,1);assert.equal(rows[0][6],'Approved (Offline)');
 });
+test('poster ordering moves down and up and persists member order',()=>{
+ sheets.Highlights.appendRow(['Second','https://example.org/second.png','second']);
+ let h=f.getHighlights();let r=f.moveHighlight(0,1,h[0].version);assert.equal(r.success,true);assert.equal(r.highlights[0].heading,'Second');
+ assert.equal(f.getMemberData(member[2],member[0],true).highlights[0].heading,'Second');
+ h=f.getHighlights();r=f.moveHighlight(1,-1,h[1].version);assert.equal(r.success,true);assert.equal(r.highlights[0].heading,'പുതിയ അറിയിപ്പ്');
+});
+test('stale poster ordering request does not overwrite a changed list',()=>{const h=f.getHighlights();sheets.Highlights.appendRow(['Third','https://example.org/third.png','']);assert.ok(f.moveHighlight(0,1,h[0].version).error)});
+test('poster ordering rejects invalid boundary without edits',()=>{const h=f.getHighlights();assert.ok(f.moveHighlight(0,-1,h[0].version).error)});
+test('deferred member login skips slow financial snapshot',()=>{const r=f.loginMember({phone:member[2],mid:'SECRET',deferred:true});assert.equal(r.corePending,true);assert.equal(r.member.id,'M101');assert.equal(r.member.history,undefined);assert.ok(r.token)});
