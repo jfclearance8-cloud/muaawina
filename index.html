@@ -489,6 +489,18 @@
             box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
         }
     </style>
+
+<style id="campaign-interface-removal">
+/* Campaign closed: presentation only; backend and data remain intact. */
+#homeCampaignCard, #tabCampaign, #sectionCampaign, #campaignModal,
+[onclick*="toggleCampaignModal"], [onclick*="openCampaignEditForm"] { display: none !important; }
+</style>
+<style id="button-processing-style">
+.button-loading-ring { display:inline-block; width:14px; height:14px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:button-spin .8s linear infinite; margin-right:8px; vertical-align:middle; }
+button[aria-busy="true"] { opacity:.75; cursor:wait; }
+@keyframes button-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .button-loading-ring { animation:none; } }
+</style>
 <style id="member-design-refresh">
 #loginPage.login-wrapper { background:radial-gradient(ellipse at 18% 16%,#3b63c9 0,transparent 46%),linear-gradient(150deg,#172f74,#244da8 60%,#183882); }
 #loginPage .login-card-bottom { border-radius:34px 34px 0 0; box-shadow:0 -14px 50px #10235124; border-top:1px solid #ffffffaa; }
@@ -504,7 +516,6 @@
 #bottomNav .pill-bar { box-shadow:0 8px 32px #172f741f; border:1px solid #e5ebf7; }
 #loginPage input,#homePage,#memberPage,#profilePage { font-family:'Manjari',sans-serif; }
 @media (prefers-reduced-motion:reduce) { #loginPage *,#homePage *,#memberPage * { animation:none !important; scroll-behavior:auto; } }
-#posterHeading,#posterDesc { font-family:'Manjari',sans-serif; text-transform:none; letter-spacing:normal; }
 </style>
 </head>
 
@@ -669,7 +680,7 @@
             <!-- വെൽകം ഹെഡർ -->
             <div class="flex justify-between items-center mb-6">
                 <div>
-                    <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">Welocme,</p>
+                    <p class="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-1">Welcome,</p>
                     <h2 id="homeWelcomeName" class="text-xl font-black text-slate-800 uppercase tracking-tight">അംഗം
                     </h2>
                 </div>
@@ -2195,47 +2206,102 @@
         const API_URL = "https://script.google.com/macros/s/AKfycbzOz6QkJjxIq3crrv7MaAeu5YdxZpmoOMPV6r6nMj9Wow2cqEqlnB8nUu6iezQc6nSEhQ/exec";
         const BOT_BASE_URL = "https://muaawina-whatsapp-bot.onrender.com"; // വാട്സ്ആപ്പ് ബോട്ട് URL (ഇനി ഇത് മാറാൻ സാധ്യതയില്ല!)
 
-        async function callAPI(action, data = {}) {
-            try {
-                const response = await fetch(API_URL, {
-                    method: "POST",
-                    body: JSON.stringify({ action, data }),
-                    headers: { "Content-Type": "text/plain;charset=utf-8" }
-                });
-                return await response.json();
-            } catch (error) {
-                return { error: "Server connection failed!" };
-            }
+        let authToken = localStorage.getItem('muaawina_session_token') || '';
+        let authRole = localStorage.getItem('muaawina_session_role') || '';
+        let memberSessionGeneration = 0;
+        let authGeneration=0;
+        let activeMemberTab = 'home';
+        let memberRefreshRevision = 0;
+        const apiRequestsInFlight = new Map();
+        const backgroundActions = new Set(['checkPendingApprovals','getMemberData','getAdminData','getAppSettings','getDirectoryData','markAppDownloaded','sendWhatsAppMedia']);
+        function saveSession(token, role) {
+            authToken = token; authRole = role;
+            localStorage.setItem('muaawina_session_token', token);
+            localStorage.setItem('muaawina_session_role', role);
+            localStorage.removeItem('muaawina_admin_login_hash');
+            localStorage.removeItem('muaawina_mid');
+            localStorage.removeItem('muaawina_phone');
         }
-        window.onload = function () {
-            callAPI('checkPendingApprovals').then(hasPending => {
-                const badge = document.getElementById('loginNotify');
-                if (hasPending && badge) badge.classList.remove('hidden');
-            });
-
-            // Auto-login സുരക്ഷിതമായി പരിശോധിക്കുന്നു
-            const savedPhone = localStorage.getItem('muaawina_phone');
-            const savedMid = localStorage.getItem('muaawina_mid');
-
-            // ശരിയായ ഡാറ്റ ഉണ്ടെങ്കിൽ മാത്രം ലോഗിൻ ചെയ്യാൻ ശ്രമിക്കുക
-            if (savedPhone && savedPhone !== "undefined" && savedMid && savedMid !== "undefined") {
-                const pInput = document.getElementById('phoneInput');
-                const mInput = document.getElementById('midInput');
-                if (pInput) pInput.value = savedPhone;
-                if (mInput) mInput.value = savedMid;
-                fetchMemberDetails(true);
-            } else {
-                // തെറ്റായ ഡാറ്റ ആണെങ്കിൽ അത് കളയുന്നു
-                localStorage.removeItem('muaawina_phone');
-                localStorage.removeItem('muaawina_mid');
-            }
+        async function callAPI(action, data = {}) {
+            const token = authToken;
+            const generation=authGeneration;
+            const key = JSON.stringify({action, data, token});
+            const read = ['getMemberData','getAdminData','getAppSettings','getDirectoryData','checkPendingApprovals'].includes(action);
+            if (read && apiRequestsInFlight.has(key)) return apiRequestsInFlight.get(key);
+            const button = document.activeElement?.closest?.('button');
+            const release = backgroundActions.has(action) ? () => {} : startButtonProcessing(button);
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 45000);
+            const request = (async () => {
+                try {
+                    const response = await fetch(API_URL, {method:'POST', body:JSON.stringify({action,data,token}), headers:{'Content-Type':'text/plain;charset=utf-8'}, signal:controller.signal});
+                    if (!response.ok) throw new Error('HTTP '+response.status);
+                    const result = await response.json();
+                    if(generation!==authGeneration)return {error:'Session ended',code:'STALE_SESSION'};
+                    if(result?.code==='AUTH_REQUIRED' && token===authToken) goHome();
+                    return result;
+                } catch(error) {
+                    return {error: read ? 'സർവറുമായി ബന്ധപ്പെടാൻ കഴിഞ്ഞില്ല. വീണ്ടും ശ്രമിക്കുക.' : 'മറുപടി ലഭിച്ചില്ല. വീണ്ടും ചെയ്യുന്നതിന് മുമ്പ് വിവരങ്ങൾ refresh ചെയ്ത് പരിശോധിക്കുക.', code:'NETWORK_ERROR'};
+                } finally {clearTimeout(timer);release();}
+            })();
+            if(read) apiRequestsInFlight.set(key,request);
+            try {return await request;} finally {if(apiRequestsInFlight.get(key)===request)apiRequestsInFlight.delete(key);}
+        }
+        async function queueBotMessage(endpoint, payload) {
+            const result=await callAPI(endpoint==='/send-media'?'sendWhatsAppMedia':'sendWhatsAppText',payload);
+            if(!result?.success)throw new Error(result?.error||'Notification queue failed');
+            return result;
+        }
+        window.onload = function() {
+            localStorage.removeItem('muaawina_admin_login_hash');
+            if(authToken && authRole==='admin') adminLogin(true);
+            else if(authToken && authRole==='member') fetchMemberDetails(true);
         };
 
-        function showLoader(s) {
+        // Only initial login blocks the screen. Other requests use their button.
+        let lastActionButton = null;
+        const processingButtons = new WeakMap();
+        document.addEventListener('click', event => {
+            const button = event.target.closest?.('button, input[type="submit"]');
+            if (button && !button.closest('.swal2-container')) lastActionButton = button;
+        }, true);
+        function startButtonProcessing(button) {
+            if (!button || !button.isConnected) return () => {};
+            let state = processingButtons.get(button);
+            if (!state) {
+                state = { count: 0, html: button.innerHTML, disabled: button.disabled,
+                    busy: button.getAttribute('aria-busy') };
+                processingButtons.set(button, state);
+                button.disabled = true;
+                button.setAttribute('aria-busy', 'true');
+                button.innerHTML = '<span class="button-loading-ring" aria-hidden="true"></span><span>Processing…</span>';
+            }
+            state.count++;
+            return () => {
+                if (--state.count > 0) return;
+                button.innerHTML = state.html;
+                button.disabled = state.disabled;
+                if (state.busy === null) button.removeAttribute('aria-busy');
+                else button.setAttribute('aria-busy', state.busy);
+                processingButtons.delete(button);
+            };
+        }
+        function showLoader(s, waitForPage = false) {
             const loader = document.getElementById('loader');
-            if (loader) { if (s) loader.classList.remove('hidden'); else loader.classList.add('hidden'); }
+            if (s && waitForPage) loader?.classList.remove('hidden');
+            else loader?.classList.add('hidden');
         }
         function goHome() {
+            const oldToken=authToken;
+            authToken='';authRole='';authGeneration++;memberSessionGeneration++;memberRefreshRevision++;
+            localStorage.removeItem('muaawina_session_token');localStorage.removeItem('muaawina_session_role');
+            if(oldToken)fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'logout',token:oldToken})}).catch(()=>{});
+            clearInterval(timerInterval);
+            sessionApprovals=[];directoryMembers=[];activeMemberTab='home';activeAdminTab='overview';
+            if(typeof Swal!=='undefined')Swal.close();
+            document.querySelectorAll('[id$="Modal"]').forEach(el=>el.classList.add('hidden'));
+            ['homePage','memberPage','profilePage','historyPage','directoryPage'].forEach(id=>document.getElementById(id)?.classList.add('hidden'));
+            ['monthsGrid','historyListContainer','directoryListContainer','adminMemberList','approvalList','appReportList','adminLoginList','homeHighlightsArea','exploreGrid'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='';});
             document.getElementById('memberPage')?.classList.add('hidden');
             document.getElementById('adminPage')?.classList.add('hidden');
 
@@ -2252,6 +2318,13 @@
             // ലോഗൗട്ട് ചെയ്യുമ്പോൾ ഫോണിൽ സേവ് ചെയ്ത ലോഗിൻ വിവരങ്ങൾ ഡിലീറ്റ് ചെയ്യുന്നു
             localStorage.removeItem('muaawina_phone');
             localStorage.removeItem('muaawina_mid');
+            localStorage.removeItem('muaawina_admin_login_hash');
+            adminSessionActive = false;
+            adminSessionGeneration++;
+            completedApprovalRows.clear();
+            adminMembers = []; pendingApprovalsList = []; permanentApprovals = [];
+            document.getElementById('homePage')?.classList.add('hidden');
+            document.getElementById('profilePage')?.classList.add('hidden');
 
             currentMember = null; fullHistory = []; pendingMonthsList = []; upcomingMonthsList = []; lastMonthDataGlobal = null;
 
@@ -2266,38 +2339,24 @@
             const p = pInput ? pInput.value : '';
             const m = mInput ? mInput.value.trim().toUpperCase() : '';
 
-            if (!p || p.length < 10) {
-                if (errBox) { errBox.innerText = 'സാധുവായ ഫോൺ നമ്പർ നൽകുക!'; errBox.classList.remove('hidden'); }
-                return;
+            const existingSession=authToken && authRole==='member';
+            if(!existingSession && (!p || p.replace(/\D/g,'').length<10 || !m)) {
+                if(errBox){errBox.innerText='ഫോൺ നമ്പറും MID/പാസ്‌വേഡും നൽകുക.';errBox.classList.remove('hidden');}return;
             }
-            if (!m) {
-                if (errBox) { errBox.innerText = 'ദയവായി MID നൽകുക!'; errBox.classList.remove('hidden'); }
-                return;
-            }
-
-            showLoader(true);
-
-            // ഫോൺ നമ്പറും MID-യും ഒരുമിച്ച് ഡാറ്റാബേസിലേക്ക് അയക്കുന്നു
-            callAPI('getMemberData', { phone: p, mid: m }).then(d => {
+            const generation=memberSessionGeneration;
+            const revision=++memberRefreshRevision;
+            const wasLoggedIn=!!currentMember;
+            const selectedTab=activeMemberTab;
+            showLoader(true,!wasLoggedIn);
+            return callAPI(existingSession?'getMemberData':'loginMember',{phone:p,mid:m}).then(result=>{
+                if(generation!==memberSessionGeneration || revision!==memberRefreshRevision)return;
+                const d=result.member || result;
                 showLoader(false);
-                if (d.error) {
-                    if (errBox) { errBox.innerText = d.error; errBox.classList.remove('hidden'); }
-                    // ലോഗിൻ പരാജയപ്പെട്ടാൽ സേവ് ചെയ്ത വിവരങ്ങൾ കളയുന്നു
-                    if (isAutoLogin) {
-                        localStorage.removeItem('muaawina_phone');
-                        localStorage.removeItem('muaawina_mid');
-                        // എറർ വന്നാൽ നിർബന്ധമായും ലോഗിൻ പേജ് തന്നെ കാണിക്കുക
-                        document.getElementById('memberPage').classList.add('hidden');
-                        document.getElementById('adminPage').classList.add('hidden');
-                        document.getElementById('loginPage').classList.remove('hidden');
-                        toggleScroll(true);
-                    }
-                    return;
-                }
+                if(result.error || d.error){if(errBox){errBox.innerText=result.error||d.error;errBox.classList.remove('hidden');}return;}
+                if(result.token)saveSession(result.token,'member');
                 try {
                     // ലോഗിൻ വിജയകരമായാൽ ഫോണിൽ സേവ് ചെയ്യുന്നു (എപ്പോഴും ലോഗിൻ ആയി കിടക്കാൻ)
-                    localStorage.setItem('muaawina_phone', p);
-                    localStorage.setItem('muaawina_mid', m);
+
 
                     // ആപ്പ് ഉപയോഗിക്കുന്നുണ്ട് എന്ന് ഗൂഗിൾ ഷീറ്റിൽ രേഖപ്പെടുത്തുന്നു
                     if (localStorage.getItem('muaawina_app_downloaded') !== 'yes') {
@@ -2385,7 +2444,7 @@
                     upcomingMonthsList = fullHistory.filter(hist => hist.status === 'Upcoming');
 
                     document.getElementById('loginPage')?.classList.add('hidden');
-                    switchAppTab('home'); // ലോഗിൻ ചെയ്ത ഉടനെ ഹോം പേജ് കാണിക്കാൻ വിളിക്കുന്നു
+                    switchAppTab(wasLoggedIn ? selectedTab : 'home');
                     document.getElementById('bottomNav').classList.remove('hidden');
                     toggleScroll(false);
 
@@ -2449,7 +2508,8 @@
                     }
                     if (document.getElementById('profPlace')) document.getElementById('profPlace').value = d.place || '';
                     if (document.getElementById('profAddress')) document.getElementById('profAddress').value = d.address || '';
-                    if (document.getElementById('profPassword')) document.getElementById('profPassword').value = d.password || d.id || '';
+                    if (document.getElementById('profPassword')) document.getElementById('profPassword').value = '';
+                    document.getElementById('profPassword')?.setAttribute('placeholder','മാറ്റണമെങ്കിൽ മാത്രം പുതിയ പാസ്‌വേഡ്');
 
                     // പ്രൊഫൈൽ പൂർണ്ണമാണോ എന്ന് പരിശോധിക്കുന്നു (Warning Box Logic)
                     const warningBox = document.getElementById('profileWarning');
@@ -2528,11 +2588,11 @@
                                 const hasMeta = h.heading || h.desc;
                                 const slideHtml = `
                                     <div class="poster-slide w-full flex-shrink-0 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-start" style="opacity: 0.4; transform: scale(0.95); transition: opacity 0.5s ease-out, transform 0.5s ease-out; transform-style: preserve-3d;">
-                                        <img src="${h.url}" class="w-full h-auto block" alt="Poster" onload="adjustSliderHeight()">
+                                        <img src="${safeAssetURL(h.url)}" class="w-full h-auto block" alt="Poster" onload="adjustSliderHeight()">
                                         ${hasMeta ? `
                                             <div class="slide-meta p-5 border-t border-slate-50 bg-slate-50/30" style="transform: translateY(15px); opacity: 0; transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);">
-                                                ${h.heading ? `<h4 class="text-xs font-black text-slate-800 uppercase tracking-wider mb-1">${h.heading}</h4>` : ''}
-                                                ${h.desc ? `<p class="text-[10px] font-bold text-slate-500 leading-relaxed">${h.desc}</p>` : ''}
+                                                ${h.heading ? `<h4 class="text-xs font-black text-slate-800 uppercase tracking-wider mb-1">${escapeHTML(h.heading)}</h4>` : ''}
+                                                ${h.desc ? `<p class="text-[10px] font-bold text-slate-500 leading-relaxed">${escapeHTML(h.desc)}</p>` : ''}
                                             </div>
                                         ` : ''}
                                     </div>
@@ -2556,11 +2616,11 @@
                             d.highlights.forEach((h, index) => {
                                 const itemHtml = `
                                     <div class="pinterest-item" onclick="openPinterestDetail(${index})">
-                                        <img src="${h.url}" alt="${h.heading || 'Poster'}">
+                                        <img src="${safeAssetURL(h.url)}" alt="${escapeHTML(h.heading || 'Poster')}">
                                         ${(h.heading || h.desc) ? `
                                             <div class="pinterest-meta">
-                                                ${h.heading ? `<h4 class="pinterest-title">${h.heading}</h4>` : ''}
-                                                ${h.desc ? `<p class="pinterest-desc truncate-2-lines">${h.desc}</p>` : ''}
+                                                ${h.heading ? `<h4 class="pinterest-title">${escapeHTML(h.heading)}</h4>` : ''}
+                                                ${h.desc ? `<p class="pinterest-desc truncate-2-lines">${escapeHTML(h.desc)}</p>` : ''}
                                             </div>
                                         ` : ''}
                                     </div>
@@ -2891,11 +2951,12 @@
                         Swal.fire('Error', res.error, 'error');
                     } else {
                         closePayModal();
+                        fetchMemberDetails(true);
 
                         // വിജയകരമായി സബ്മിറ്റ് ചെയ്തു എന്ന അറിയിപ്പ്
                         Swal.fire({
                             title: 'വിജയിച്ചു! 🎉',
-                            text: 'നിങ്ങളുടെ പേയ്മെന്റ് വിവരങ്ങൾ സമർപ്പിച്ചു. അഡ്മിൻ അപ്രൂവ് ചെയ്യുന്നതിനായി കാത്തിരിക്കുക.',
+                            text: res.notificationQueued === false ? 'പേയ്മെന്റ് വിവരങ്ങൾ save ചെയ്തു. WhatsApp അറിയിപ്പ് queue ചെയ്യാനായില്ല; വീണ്ടും payment submit ചെയ്യേണ്ടതില്ല.' : 'നിങ്ങളുടെ പേയ്മെന്റ് വിവരങ്ങൾ സമർപ്പിച്ചു. അഡ്മിൻ അപ്രൂവ് ചെയ്യുന്നതിനായി കാത്തിരിക്കുക.',
                             icon: 'success',
                             confirmButtonText: 'അഡ്മിനെ അറിയിക്കുക (WhatsApp)',
                             confirmButtonColor: '#10b981',
@@ -2911,7 +2972,7 @@
                                 }
 
                                 // വിവരങ്ങൾ റീലോഡ് ചെയ്യുന്നു
-                                setTimeout(fetchMemberDetails, 1000);
+                                // Data refresh already started after server confirmation.
                             }
                         });
                     }
@@ -2930,34 +2991,34 @@
 
 
 
-        function adminLogin() {
-            const passInput = document.getElementById('adminPass');
-            const p = passInput ? passInput.value : '';
-            showLoader(true);
-
-            if (APP_CONFIG) {
-                checkPasswordAndLogin(p);
-            } else {
-                callAPI('getAppSettings').then(config => {
-                    if (config && !config.error) APP_CONFIG = config;
-                    checkPasswordAndLogin(p);
-                });
-            }
+        let adminSessionActive = false;
+        let adminSessionGeneration = 0;
+        let activeAdminTab = 'overview';
+        let adminRefreshRevision = 0;
+        const completedApprovalRows = new Set();
+        async function adminLogin(restore=false) {
+            if(adminSessionActive)return loadAdminData();
+            const generation=adminSessionGeneration;
+            showLoader(true,true);
+            if(restore){if(authToken&&authRole==='admin')return loadAdminData();showLoader(false);return;}
+            const result=await callAPI('loginAdmin',{password:document.getElementById('adminPass')?.value||''});
+            if(generation!==adminSessionGeneration)return;
+            if(!result?.success||!result.token){showLoader(false);return Swal.fire('പിഴവ്',result?.error||'Backend security update deploy ചെയ്യണം.','error');}
+            saveSession(result.token,'admin');return loadAdminData();
         }
-
-        function checkPasswordAndLogin(enteredPass) {
-            let actualPass = (APP_CONFIG && APP_CONFIG.ADMIN_PASS) ? APP_CONFIG.ADMIN_PASS : "1234";
-            if (enteredPass !== actualPass && enteredPass !== "1234") {
-                showLoader(false);
-                return Swal.fire('തെറ്റ്', 'പാസ്‌വേഡ് തെറ്റാണ്!', 'error');
-            }
-
+        function loadAdminData(loginDigest = null) {
+            const generation = adminSessionGeneration;
+            const revision = adminRefreshRevision;
             const aModal = document.getElementById('adminModal');
             if (aModal) aModal.classList.add('hidden');
 
-            callAPI('getAdminData').then(d => {
+            return callAPI('getAdminData', {refreshRevision: adminRefreshRevision}).then(d => {
+                if (generation !== adminSessionGeneration || revision !== adminRefreshRevision) return;
                 showLoader(false);
                 if (d.error) return Swal.fire('Error', d.error, 'error');
+                adminSessionActive = true;
+                
+                if (document.getElementById('adminPass')) document.getElementById('adminPass').value = '';
 
                 if (d.config) {
                     APP_CONFIG = d.config;
@@ -2977,6 +3038,7 @@
                 document.getElementById('adminPage')?.classList.remove('hidden');
                 toggleScroll(false);
 
+                const savedFilters=Object.fromEntries(['batchReportFilter','memberBatchFilter','monthWiseFilter'].map(id=>[id,document.getElementById(id)?.value]));
                 adminMembers = d.members || [];
                 adminPosters = d.highlights || [];
                 adminCampaigns = d.campaigns || []; // Mocked from backend or real
@@ -2985,17 +3047,20 @@
 
                 // Approval_Queue-ൽ നിന്ന് അപ്രൂവ് ചെയ്തവയും പെൻഡിംഗ് ഉള്ളവയും വേർതിരിക്കുന്നു
                 let allApprovals = d.approvals || [];
-                pendingApprovalsList = allApprovals.filter(a => !a.status || a.status === '' || a.status === 'Pending' || a.status === 'Processing');
+                pendingApprovalsList = allApprovals.filter(a => !a.status || a.status === '' || a.status === 'Pending' || a.status === 'Processing')
+                    .map(filterCompletedApproval).filter(Boolean);
                 permanentApprovals = allApprovals.filter(a => a.status === 'Approved' || a.status === 'Approved (Offline)');
                 populateBroadcastBatch();
                 renderBatchDropdowns();
                 populateMonthFilter();
-                updateAdminStats('all');
+                Object.entries(savedFilters).forEach(([id,value])=>{const el=document.getElementById(id);if(el&&[...el.options].some(o=>o.value===value))el.value=value;});
+                updateAdminStats(document.getElementById('batchReportFilter')?.value||'all');
                 renderApprovals(pendingApprovalsList);
-                switchAdminTab('overview');
+                switchAdminTab(activeAdminTab);
             });
         }
         function switchAdminTab(t) {
+            activeAdminTab = t;
             document.querySelectorAll('.admin-tab').forEach(el => el.classList.remove('active'));
 
             const sections = ['Overview', 'Approvals', 'Members', 'Logins', 'Campaign', 'Posters'];
@@ -3024,7 +3089,7 @@
 
         function renderBatchDropdowns() {
             let bt = [...new Set(adminMembers.map(m => m.batch))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
-            let options = '<option value="all">എല്ലാ ബാച്ചുകളും (Total)</option>' + bt.map(b => `<option value="${b}">${b}</option>`).join('');
+            let options = '<option value="all">എല്ലാ ബാച്ചുകളും (Total)</option>' + bt.map(b => `<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`).join('');
 
             const rFilter = document.getElementById('batchReportFilter');
             const mFilter = document.getElementById('memberBatchFilter');
@@ -3092,7 +3157,7 @@
                     let fee = (mem && mem.fee) ? mem.fee : 50;
 
                     let rowCount = pa.isBulk ? pa.rows.length : 1;
-                    let totalAmt = rowCount * fee;
+                    let totalAmt = Number(pa.amount) || rowCount * fee;
 
                     combined.push({
                         name: pa.name,
@@ -3139,7 +3204,7 @@
                             <span class="w-6 h-6 bg-indigo-100 text-indigo-600 rounded-full flex items-center justify-center text-[10px] font-black">${i + 1}</span>
                             <div>
                                 <p class="font-black text-slate-800 leading-none mb-1">
-                                    ${a.name}
+                                    ${escapeHTML(a.name)}
                                     ${a.isOffline ? ' <span class="bg-amber-50 text-amber-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-amber-100 ml-1">ഓഫ്‌ലൈൻ</span>' : ''}
                                     ${isFuturePayment ? ' <span class="bg-emerald-50 text-emerald-600 text-[8px] font-black px-1.5 py-0.5 rounded border border-emerald-100 ml-1">അഡ്വാന്‍സ് (Adv)</span>' : ''}
                                 </p>
@@ -3214,24 +3279,7 @@
                             button { display: none; }
                         }
                     </style>
-                <style id="member-design-refresh">
-#loginPage.login-wrapper { background:radial-gradient(ellipse at 18% 16%,#3b63c9 0,transparent 46%),linear-gradient(150deg,#172f74,#244da8 60%,#183882); }
-#loginPage .login-card-bottom { border-radius:34px 34px 0 0; box-shadow:0 -14px 50px #10235124; border-top:1px solid #ffffffaa; }
-#loginPage input:focus { border-color:#7095ea !important; box-shadow:0 0 0 4px #2563eb12; }
-#loginPage img { filter:drop-shadow(0 10px 18px #0d20574d); }
-#loginPage h2 { letter-spacing:.17em; }
-#homePage,#memberPage,#historyPage,#directoryPage,#profilePage { background:linear-gradient(180deg,#f1f5fd 0,#f8fafc 220px); }
-#homePage > div:first-child { padding:18px 16px; margin-bottom:18px; background:#fff; border:1px solid #e5ebf7; border-radius:24px; box-shadow:0 5px 18px #1e3a8a06; }
-#homePage > div:nth-child(2) { background:linear-gradient(130deg,#234aa4,#3065cb); box-shadow:0 10px 24px #244b9c22; }
-#memberPage > div:first-child { background:linear-gradient(130deg,#183a85,#2b5dbe); box-shadow:0 10px 24px #244b9c22; }
-#memberPage #monthsGrid > * { border-radius:20px; }
-#homePage .glass-card,#memberPage .glass-card,#profilePage .glass-card { border:1px solid #e5ebf7; box-shadow:0 6px 20px #1e3a8a07; }
-#bottomNav .pill-bar { box-shadow:0 8px 32px #172f741f; border:1px solid #e5ebf7; }
-#loginPage input,#homePage,#memberPage,#profilePage { font-family:'Manjari',sans-serif; }
-@media (prefers-reduced-motion:reduce) { #loginPage *,#homePage *,#memberPage * { animation:none !important; scroll-behavior:auto; } }
-#posterHeading,#posterDesc { font-family:'Manjari',sans-serif; text-transform:none; letter-spacing:normal; }
-</style>
-</head>
+                </head>
                 <body>
                     <div class="header">
                         <h1>MUAAWINA</h1>
@@ -3402,7 +3450,7 @@
                     <div class="flex items-center gap-4">
                         <div class="w-11 h-11 rounded-2xl ${m.loginCount > 0 ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 text-slate-400'} flex items-center justify-center font-black text-lg shadow-inner text-center uppercase border border-white/50"><i class="fas fa-user"></i></div>
                         <div>
-                            <p class="font-black text-slate-900 text-sm leading-tight uppercase tracking-tight text-left leading-none">${m.name}</p>
+                            <p class="font-black text-slate-900 text-sm leading-tight uppercase tracking-tight text-left leading-none">${escapeHTML(m.name)}</p>
                             <div class="flex gap-1.5 items-center mt-2 flex-wrap">
                                 <p class="text-[9px] font-black ${m.loginCount > 0 ? 'text-blue-500 bg-blue-50 border-blue-100' : 'text-slate-400 bg-slate-50 border-slate-100'} uppercase tracking-widest px-2 py-0.5 rounded border inline-block leading-none">
                                     ${m.loginCount > 0 ? `<i class="fas fa-clock"></i> അവസാനമായി: ${m.lastLogin}` : 'ലോഗിൻ ചെയ്തിട്ടില്ല'}
@@ -3449,7 +3497,7 @@
             for (let batch of sortedBatches) {
                 textToCopy += `\n📁 *[ ${batch} ]*\n`;
                 groupedByBatch[batch].forEach((m, index) => {
-                    textToCopy += `${index + 1}. ${m.name}\n`;
+                    textToCopy += `${index + 1}. ${escapeHTML(m.name)}\n`;
                 });
                 textToCopy += `-------------------------\n`;
             }
@@ -3555,24 +3603,7 @@
                         body { margin: 0; }
                     }
                 </style>
-            <style id="member-design-refresh">
-#loginPage.login-wrapper { background:radial-gradient(ellipse at 18% 16%,#3b63c9 0,transparent 46%),linear-gradient(150deg,#172f74,#244da8 60%,#183882); }
-#loginPage .login-card-bottom { border-radius:34px 34px 0 0; box-shadow:0 -14px 50px #10235124; border-top:1px solid #ffffffaa; }
-#loginPage input:focus { border-color:#7095ea !important; box-shadow:0 0 0 4px #2563eb12; }
-#loginPage img { filter:drop-shadow(0 10px 18px #0d20574d); }
-#loginPage h2 { letter-spacing:.17em; }
-#homePage,#memberPage,#historyPage,#directoryPage,#profilePage { background:linear-gradient(180deg,#f1f5fd 0,#f8fafc 220px); }
-#homePage > div:first-child { padding:18px 16px; margin-bottom:18px; background:#fff; border:1px solid #e5ebf7; border-radius:24px; box-shadow:0 5px 18px #1e3a8a06; }
-#homePage > div:nth-child(2) { background:linear-gradient(130deg,#234aa4,#3065cb); box-shadow:0 10px 24px #244b9c22; }
-#memberPage > div:first-child { background:linear-gradient(130deg,#183a85,#2b5dbe); box-shadow:0 10px 24px #244b9c22; }
-#memberPage #monthsGrid > * { border-radius:20px; }
-#homePage .glass-card,#memberPage .glass-card,#profilePage .glass-card { border:1px solid #e5ebf7; box-shadow:0 6px 20px #1e3a8a07; }
-#bottomNav .pill-bar { box-shadow:0 8px 32px #172f741f; border:1px solid #e5ebf7; }
-#loginPage input,#homePage,#memberPage,#profilePage { font-family:'Manjari',sans-serif; }
-@media (prefers-reduced-motion:reduce) { #loginPage *,#homePage *,#memberPage * { animation:none !important; scroll-behavior:auto; } }
-#posterHeading,#posterDesc { font-family:'Manjari',sans-serif; text-transform:none; letter-spacing:normal; }
-</style>
-</head>
+            </head>
             <body>
                 <h2>MUAAWINA വരിസംഖ്യ റിപ്പോർട്ട്</h2>
                 <div class="info">ബാച്ച്: <b>${batchName}</b> | തീയതി: ${dateStr}</div>
@@ -3600,8 +3631,8 @@
                 html += `
                     <tr>
                         <td style="text-align: center;">${index + 1}</td>
-                        <td><b>${m.name}</b></td>
-                        <td>${m.phone}</td>
+                        <td><b>${escapeHTML(m.name)}</b></td>
+                        <td>${escapeHTML(m.phone)}</td>
                         <td style="font-size: 11px;">${dueMonths}</td>
                         <td class="${amtClass}">${amtText}</td>
                     </tr>
@@ -3652,7 +3683,8 @@
                 let amountClass = "";
                 let labelText = "";
 
-                if (dueAmount > 0) {
+                if(m.trackingReady===false){displayAmount='—';amountClass='text-amber-600';labelText='വിവരങ്ങൾ അപൂർണ്ണം';}
+                else if (dueAmount > 0) {
                     displayAmount = "₹" + dueAmount;
                     amountClass = "text-rose-600"; // കുടിശ്ശിക (Red)
                     labelText = "Balance";
@@ -3667,14 +3699,14 @@
                 }
 
                 return `
-            <div class="p-5 flex justify-between items-center hover:bg-slate-50 transition-all cursor-pointer border-b" onclick="showMemberDetails('${encodeURIComponent(JSON.stringify(m))}')">
+            <div class="p-5 flex justify-between items-center hover:bg-slate-50 transition-all cursor-pointer border-b" onclick="showMemberDetails('${encodeURIComponent(JSON.stringify(m)).replace(/'/g, "%27")}')">
                 <div class="flex items-center gap-4">
-                    <div class="w-11 h-11 rounded-2xl ${dueAmount <= 0 ? (advanceAmount > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400') : 'bg-rose-100 text-rose-500'} flex items-center justify-center font-black text-lg shadow-inner text-center uppercase border border-white/50">${m.name.charAt(0)}</div>
+                    <div class="w-11 h-11 rounded-2xl ${dueAmount <= 0 ? (advanceAmount > 0 ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-400') : 'bg-rose-100 text-rose-500'} flex items-center justify-center font-black text-lg shadow-inner text-center uppercase border border-white/50">${escapeHTML(m.name.charAt(0))}</div>
                     <div>
-                        <p class="font-black text-slate-900 text-sm leading-tight uppercase tracking-tight text-left leading-none mb-1">${m.name}</p>
-                        <p class="text-[10px] font-black text-slate-400 mt-2 uppercase tracking-widest text-left leading-none mb-1">${m.batch}</p>
+                        <p class="font-black text-slate-900 text-sm leading-tight uppercase tracking-tight text-left leading-none mb-1">${escapeHTML(m.name)}</p>
+                        <p class="text-[10px] font-black text-slate-400 mt-2 uppercase tracking-widest text-left leading-none mb-1">${escapeHTML(m.batch)}</p>
                         
-                        ${dueAmount > 0 ?
+                        ${m.trackingReady===false ? '<p class="text-xs text-amber-600">Join date / fee പരിശോധിക്കുക</p>' : dueAmount > 0 ?
                         `<p class="text-[10px] font-bold text-rose-500 mt-1 uppercase tracking-widest bg-rose-50 inline-block px-2 py-0.5 rounded border border-rose-100">${dueCountUpToNow} മാസം കുടിശ്ശിക</p>` :
                         (advanceAmount > 0 ?
                             `<p class="text-[10px] font-bold text-emerald-500 mt-1 uppercase tracking-widest bg-emerald-50 inline-block px-2 py-0.5 rounded border border-emerald-100">Advance Paid</p>` :
@@ -3752,8 +3784,8 @@
             if (waBtn) {
                 waBtn.onclick = () => {
                     let msg = dueAmount > 0 ?
-                        `السلام عليكم \n${m.name} (MID: ${m.id}),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യയിൽ ₹${dueAmount} കുടിശ്ശികയുണ്ട്.\nമാസങ്ങൾ: ${dueMonthsList.join(', ')}\nhttps://muaawina.github.io/muaawina.com/` :
-                        `السلام عليكم \n${m.name} (MID: ${m.id}),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യ കൃത്യമാണ്.`;
+                        `السلام عليكم \n${escapeHTML(m.name)} (MID: ${escapeHTML(m.id)}),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യയിൽ ₹${dueAmount} കുടിശ്ശികയുണ്ട്.\nമാസങ്ങൾ: ${dueMonthsList.join(', ')}\nhttps://muaawina.github.io/muaawina.com/` :
+                        `السلام عليكم \n${escapeHTML(m.name)} (MID: ${escapeHTML(m.id)}),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യ കൃത്യമാണ്.`;
 
                     let link = getWALink(m.phone, msg);
                     if (link) {
@@ -3844,7 +3876,7 @@
                             const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
                             pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
-                            pdf.save(`MUAAWINA_Account_${m.name}.pdf`);
+                            pdf.save(`MUAAWINA_Account_${escapeHTML(m.name)}.pdf`);
 
                             showLoader(false);
                         }).catch(e => {
@@ -4085,6 +4117,7 @@
                                         document.getElementById('memberDetailsModal').classList.add('hidden');
 
                                         if (m.phone && String(m.phone).trim() !== "") {
+                                            adminRefreshRevision++;loadAdminData();
                                             Swal.fire({
                                                 title: 'വിജയിച്ചു!',
                                                 text: 'പേയ്‌മെന്റ് രേഖപ്പെടുത്തി. വാട്സ്ആപ്പിൽ മെസ്സേജ് അയക്കണമെന്നുണ്ടോ?',
@@ -4109,17 +4142,13 @@
                                                     let paidAmount = selectedMonths.length * currentFee;
 
                                                     let finalPhone = "91" + String(m.phone).replace(/\D/g, '').slice(-10);
-                                                    let msgText = `السلام عليكم \n${m.name} (MID: ${m.id}),\nനിങ്ങളുടെ MUAAWINA ഓഫ്‌ലൈൻ പേയ്‌മെന്റ് വിജയകരമായി രേഖപ്പെടുത്തിയിരിക്കുന്നു. ✅\n\nഅടച്ച തുക: ₹${paidAmount}\nമാസങ്ങൾ: ${mNames} ${yNames}\nഇനി അടയ്ക്കാനുള്ള തുക: ₹${newBalance}\n\nMUAAWINA - വരിസംഖ്യ ട്രാക്കർ`;
+                                                    let msgText = `السلام عليكم \n${escapeHTML(m.name)} (MID: ${escapeHTML(m.id)}),\nനിങ്ങളുടെ MUAAWINA ഓഫ്‌ലൈൻ പേയ്‌മെന്റ് വിജയകരമായി രേഖപ്പെടുത്തിയിരിക്കുന്നു. ✅\n\nഅടച്ച തുക: ₹${paidAmount}\nമാസങ്ങൾ: ${mNames} ${yNames}\nഇനി അടയ്ക്കാനുള്ള തുക: ₹${newBalance}\n\nMUAAWINA - വരിസംഖ്യ ട്രാക്കർ`;
 
-                                                    fetch(BOT_BASE_URL + "/send-message", {
-                                                        method: "POST",
-                                                        headers: { "Content-Type": "application/json" },
-                                                        body: JSON.stringify({
+                                                    queueBotMessage("/send-message", {
                                                             phone: finalPhone,
                                                             message: msgText,
                                                             isGroup: false
-                                                        })
-                                                    }).then(() => {
+                                                        }).then(() => {
                                                         showLoader(false);
                                                         Swal.fire({
                                                             title: 'അയച്ചു!',
@@ -4226,14 +4255,14 @@
 
             l.innerHTML = aps.map(a => {
                 // ബൾക്ക് ആണെങ്കിൽ വരികളുടെ ലിസ്റ്റ് അയക്കുന്നു
-                let rowData = a.isBulk ? JSON.stringify(a.rows) : `[[${a.rowIdx}, "${a.year}", "${a.month}"]]`;
+                let rowData = a.isBulk ? JSON.stringify(a.rows) : JSON.stringify([[a.rowIdx, a.year, a.month]]);
 
                 return `
                 <div class="glass-card p-6 border-l-8 border-amber-400 mb-4 shadow-md fade-in shadow-amber-50/50">
                     <div class="flex justify-between items-start mb-4">
                         <div>
-                            <p class="font-black text-slate-900 text-sm uppercase text-left tracking-tight leading-none mb-2">${a.name}</p>
-                            <span class="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 uppercase tracking-widest text-left">${a.batch}</span>
+                            <p class="font-black text-slate-900 text-sm uppercase text-left tracking-tight leading-none mb-2">${escapeHTML(a.name)}</p>
+                            <span class="text-[9px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded border border-blue-100 uppercase tracking-widest text-left">${escapeHTML(a.batch)}</span>
                         </div>
                         <span class="text-[9px] text-slate-300 uppercase text-right leading-none">${a.date}</span>
                     </div>
@@ -4241,8 +4270,8 @@
                         ${a.month} ${a.year}
                     </div>
                     <div class="flex gap-2">
-                        <button onclick='rejectReq(${rowData}, "${a.memberId}", "${a.name}", "${a.year}", "${a.month}")' class="flex-1 bg-rose-50 text-rose-600 py-3 rounded-xl text-[11px] font-black border uppercase active:scale-95 transition-all text-center">Reject</button>
-                        <button onclick='approveReq(${rowData}, "${a.memberId}", "${a.year}", "${a.month}", "${a.name}")' class="flex-1 bg-emerald-600 text-white py-3 rounded-xl text-[11px] font-black shadow-lg active:scale-95 transition-all text-center shadow-emerald-100">Allow</button>
+                        <button onclick='rejectReq(${rowData}, ${handlerArg(a.memberId)}, ${handlerArg(a.name)}, "${a.year}", "${a.month}")' class="flex-1 bg-rose-50 text-rose-600 py-3 rounded-xl text-[11px] font-black border uppercase active:scale-95 transition-all text-center">Reject</button>
+                        <button onclick='approveReq(${rowData}, ${handlerArg(a.memberId)}, "${a.year}", "${a.month}", ${handlerArg(a.name)})' class="flex-1 bg-emerald-600 text-white py-3 rounded-xl text-[11px] font-black shadow-lg active:scale-95 transition-all text-center shadow-emerald-100">Allow</button>
                     </div>
                 </div>
                 `;
@@ -4285,7 +4314,7 @@
 
             // 4. Ensure exactly one '+' at the start and URL encode it as %2B
             let finalNum = wpNumber.replace(/[^\d]/g, '');
-            return `https://api.whatsapp.com/send?phone=%2B${finalNum}${msg ? '&text=' + encodeURIComponent(msg) : ''}`;
+            return `https://api.whatsapp.com/send?phone=%2B${finalNum}${msg ? '&text=' + encodeURIComponent(msg).replace(/'/g, "%27") : ''}`;
         }
 
         // സുരക്ഷിതമായി വാട്സ്ആപ്പ് ലിങ്ക് തുറക്കാനുള്ള ഫംഗ്ഷൻ (Popup blocker ഒഴിവാക്കാൻ)
@@ -4367,14 +4396,14 @@
 
                     // റിപ്പോർട്ടിൽ ചേർക്കുന്നു
                     if (dueAmount > 0) {
-                        textToCopy += `${index + 1}. ${m.name} - ₹${dueAmount}\n`;
+                        textToCopy += `${index + 1}. ${escapeHTML(m.name)} - ₹${dueAmount}\n`;
                         batchTotal += dueAmount;
                         totalOverallDue += dueAmount;
                     } else if (advanceAmount > 0) {
                         // അഡ്വാൻസ് ഉണ്ടെങ്കിൽ + ചിഹ്നം നൽകുന്നു
-                        textToCopy += `${index + 1}. ${m.name} - +₹${advanceAmount}\n`;
+                        textToCopy += `${index + 1}. ${escapeHTML(m.name)} - +₹${advanceAmount}\n`;
                     } else {
-                        textToCopy += `${index + 1}. ${m.name} - ₹0\n`;
+                        textToCopy += `${index + 1}. ${escapeHTML(m.name)} - ₹0\n`;
                     }
                 });
 
@@ -4429,7 +4458,7 @@
                                         <div class="text-left bg-slate-50 p-4 rounded-2xl border border-slate-100 max-h-48 overflow-y-auto no-scrollbar">
                                             <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">പരാജയപ്പെട്ടവർ:</p>
                                             <div class="text-[11px] font-bold text-slate-600 space-y-1">
-                                                ${res.failed.map(f => `<div class="flex justify-between border-b border-slate-100 pb-1 last:border-0"><span>${f.name}</span> <span class="text-rose-400 text-[9px] uppercase">${f.reason}</span></div>`).join('')}
+                                                ${res.failed.map(f => `<div class="flex justify-between border-b border-slate-100 pb-1 last:border-0"><span>${escapeHTML(f.name)}</span> <span class="text-rose-400 text-[9px] uppercase">${escapeHTML(f.reason)}</span></div>`).join('')}
                                             </div>
                                         </div>
                                     `,
@@ -4446,6 +4475,22 @@
         }
 
         // 1. അപ്രൂവൽ നൽകാനും കുടിശ്ശിക (remDue) കണക്കാക്കാനുമുള്ള ഫംഗ്ഷൻ
+        function approvalRowNumbers(a) {
+            return a.isBulk ? (a.rows || []).map(row => String(row[0])) : [String(a.rowIdx)];
+        }
+        function filterCompletedApproval(a) {
+            const rows=(a.rows?.length?a.rows:[[a.rowIdx,a.year,a.month]]).filter(r=>!completedApprovalRows.has(String(r[0])));
+            if(!rows.length)return null;
+            return {...a,rows,isBulk:rows.length>1,rowIdx:rows[0][0],month:rows.map(r=>r[2]).join(', '),year:[...new Set(rows.map(r=>r[1]))].join('/')};
+        }
+        function removeCompletedApproval(rows) {
+            const ids = (Array.isArray(rows) ? rows : [rows]).map(row => String(Array.isArray(row) ? row[0] : row));
+            ids.forEach(row => completedApprovalRows.add(row));
+            pendingApprovalsList = pendingApprovalsList.map(filterCompletedApproval).filter(Boolean);
+            renderApprovals(pendingApprovalsList);
+            adminRefreshRevision++;
+            loadAdminData();
+        }
         function approveReq(rows, id, y, m, name) {
             let phone = findPhone(id);
             let mem = adminMembers.find(x => String(x.id) === String(id));
@@ -4466,22 +4511,18 @@
                 remDue = remainingPending.length * currentFee;
             }
 
-            if (!phone) {
-                Swal.fire('ഫോൺ നമ്പർ ലഭ്യമല്ല', 'ഈ മെമ്പറുടെ ഫോൺ നമ്പർ ഡാറ്റാബേസിൽ ഇല്ല.', 'warning');
-                return;
-            }
-
             Swal.fire({
                 title: 'അപ്രൂവൽ',
                 text: `${name}-ന് അപ്രൂവൽ നൽകി വാട്സ്ആപ്പിൽ റെസീപ്റ്റ് അയക്കണമെന്നുണ്ടോ?`,
                 icon: 'question',
-                showCancelButton: true,
+                showDenyButton: true,
+                showCloseButton: true,
                 confirmButtonColor: '#10b981',
-                cancelButtonColor: '#94a3b8',
+                denyButtonColor: '#94a3b8',
                 confirmButtonText: 'അതെ, അയക്കുക',
-                cancelButtonText: 'വേണ്ട'
+                denyButtonText: 'വേണ്ട'
             }).then((result) => {
-                if (result.isConfirmed) {
+                if (result.isConfirmed || result.isDenied) {
                     showLoader(true);
 
                     // ഗൂഗിൾ ഷീറ്റിൽ അപ്രൂവൽ നൽകുന്നു
@@ -4492,9 +4533,18 @@
                             return;
                         }
 
+                        removeCompletedApproval(rows);
                         // അപ്രൂവൽ വിജയകരമായാൽ ഒറിജിനൽ റെസീപ്റ്റ് ഉണ്ടാക്കാൻ വിളിക്കുന്നു
                         let approvedAmt = (Array.isArray(rows) ? rows.length : 1) * currentFee;
-                        sendAutoReceiptToMember(id, m, y, approvedAmt, remDue, name);
+                        if (result.isConfirmed && phone) {
+                            sendAutoReceiptToMember(id, m, y, approvedAmt, remDue, name);
+                        } else {
+                            showLoader(false);
+                            const message = result.isConfirmed
+                                ? 'അപ്രൂവൽ നൽകി. ഫോൺ നമ്പർ ഇല്ലാത്തതിനാൽ റെസീപ്റ്റ് അയച്ചിട്ടില്ല.'
+                                : 'അപ്രൂവൽ നൽകി. WhatsApp മെസ്സേജ് അയച്ചിട്ടില്ല.';
+                            Swal.fire('വിജയിച്ചു!', message, result.isConfirmed ? 'warning' : 'success').then(() => adminLogin());
+                        }
 
                     }).catch(err => {
                         showLoader(false);
@@ -4541,6 +4591,7 @@
                             return Swal.fire('Error', res.error, 'error');
                         }
 
+                        removeCompletedApproval(rows);
                         // വാട്സ്ആപ്പ് മെസ്സേജ് അയക്കണോ എന്ന് ചോദിക്കുന്നു
                         if (phone) {
                             Swal.fire({
@@ -4582,6 +4633,8 @@
                     callAPI('processAdminBulkAction', { type: type }).then((err) => {
                         if (err && err.error) { showLoader(false); return Swal.fire('Error', err.error, 'error'); }
 
+                        const completed = processedList.flatMap(a => a.isBulk ? a.rows : [[a.rowIdx]]);
+                        removeCompletedApproval(completed);
                         // സെഷൻ അപ്രൂവൽ ലിസ്റ്റിലേക്ക് ചേർക്കുന്നു
                         if (type === 'Approved') {
                             processedList.forEach(a => {
@@ -4623,12 +4676,12 @@
             container.innerHTML = list.map(a => {
                 let phone = findPhone(a.memberId); // ഇവിടെയും പേര് ഒഴിവാക്കി ID വെച്ച് മാത്രം തിരയുന്നു
                 let statusText = type === 'Approved' ? 'സ്വീകരിച്ചിരിക്കുന്നു (Approved). ✅' : 'നിരസിച്ചിരിക്കുന്നു (Rejected). ദയവായി അഡ്മിനുമായി ബന്ധപ്പെടുക. ❌';
-                let msg = `السلام عليكم \n${a.name} (MID: ${a.memberId}),\nനിങ്ങളുടെ ${a.month} ${a.year} മാസത്തെ MUAAWINA വരിസംഖ്യ ${statusText}`;
+                let msg = `السلام عليكم \n${escapeHTML(a.name)} (MID: ${escapeHTML(a.memberId)}),\nനിങ്ങളുടെ ${a.month} ${a.year} മാസത്തെ MUAAWINA വരിസംഖ്യ ${statusText}`;
 
                 return `
                 <div class="flex justify-between items-center p-3 border border-slate-100 rounded-xl bg-white shadow-sm">
                     <div>
-                        <p class="font-black text-sm text-slate-800 uppercase leading-none mb-1">${a.name}</p>
+                        <p class="font-black text-sm text-slate-800 uppercase leading-none mb-1">${escapeHTML(a.name)}</p>
                         <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">${a.month} ${a.year}</p>
                     </div>
                     ${phone ?
@@ -4694,8 +4747,8 @@
                                 <img src="${item.url}" alt="${item.heading || 'Explore'}">
                                 ${(item.heading || item.desc) ? `
                                     <div class="pinterest-meta">
-                                        ${item.heading ? `<h4 class="pinterest-title">${item.heading}</h4>` : ''}
-                                        ${item.desc ? `<p class="pinterest-desc truncate-2-lines">${item.desc}</p>` : ''}
+                                        ${item.heading ? `<h4 class="pinterest-title">${escapeHTML(item.heading)}</h4>` : ''}
+                                        ${item.desc ? `<p class="pinterest-desc truncate-2-lines">${escapeHTML(item.desc)}</p>` : ''}
                                     </div>
                                 ` : ''}
                             </div>
@@ -5227,7 +5280,7 @@
 
             callAPI('getDirectoryData', {}).then(res => {
                 if (res.error) {
-                    if (container) container.innerHTML = `<p class="text-center text-rose-500 font-bold text-xs p-5">${res.error}</p>`;
+                    if (container) container.innerHTML = `<p class="text-center text-rose-500 font-bold text-xs p-5">${escapeHTML(res.error)}</p>`;
                 } else if (res.members) {
                     directoryMembers = res.members;
                     setupDirectoryBatches();
@@ -5247,7 +5300,7 @@
             let html = `<button onclick="filterDirBatch('all')" id="dirBtn-all" class="dir-filter-btn active px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest border-2 border-blue-500 bg-blue-500 text-white shadow-md transition-all whitespace-nowrap">എല്ലാവരും</button>`;
 
             batches.forEach(b => {
-                html += `<button onclick="filterDirBatch('${b}')" id="dirBtn-${b}" class="dir-filter-btn px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest border-2 border-slate-100 bg-white text-slate-500 shadow-sm transition-all whitespace-nowrap hover:bg-slate-50">${b}</button>`;
+                html += `<button onclick="filterDirBatch(${handlerArg(b)})" id="dirBtn-${escapeHTML(b)}" class="dir-filter-btn px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest border-2 border-slate-100 bg-white text-slate-500 shadow-sm transition-all whitespace-nowrap hover:bg-slate-50">${escapeHTML(b)}</button>`;
             });
 
             filterContainer.innerHTML = html;
@@ -5302,19 +5355,19 @@
                 <!-- 👇 ഫോട്ടോ ഉണ്ടെങ്കിൽ അത് കാണിക്കും, ഇല്ലെങ്കിൽ ആദ്യത്തെ അക്ഷരം കാണിക്കും -->
                 <div class="w-12 h-12 rounded-full bg-blue-50 overflow-hidden flex items-center justify-center border-2 border-white shadow-inner">
                     ${m.photo && m.photo !== "" ?
-                    `<img src="${m.photo}" class="w-full h-full object-cover">` :
-                    `<span class="text-blue-600 font-black text-xl uppercase">${m.name.charAt(0)}</span>`
+                    `<img src="${safeAssetURL(m.photo)}" class="w-full h-full object-cover">` :
+                    `<span class="text-blue-600 font-black text-xl uppercase">${escapeHTML(m.name.charAt(0))}</span>`
                 }
                 </div>
                 <div>
-                    <h3 class="font-black text-slate-800 text-sm uppercase tracking-tight leading-tight">${m.name}</h3>
-                    <p class="text-[9px] font-black text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-100 uppercase tracking-widest inline-block mt-1.5 shadow-sm">${m.batch}</p>
+                    <h3 class="font-black text-slate-800 text-sm uppercase tracking-tight leading-tight">${escapeHTML(m.name)}</h3>
+                    <p class="text-[9px] font-black text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded border border-blue-100 uppercase tracking-widest inline-block mt-1.5 shadow-sm">${escapeHTML(m.batch)}</p>
                 </div>
             </div>
             <!-- ബാക്കി കോഡുകൾ (MID, Place തുടങ്ങിയവ) മാറ്റമില്ലാതെ തുടരും... -->
             <div class="text-right bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-100">
                 <p class="text-[8px] font-black text-slate-400 uppercase tracking-widest mb-0.5">MID</p>
-                <p class="font-black text-blue-700 text-xs tracking-wider">${m.id}</p>
+                <p class="font-black text-blue-700 text-xs tracking-wider">${escapeHTML(m.id)}</p>
             </div>
         </div>
         
@@ -5332,8 +5385,8 @@
         
 <!-- കോൾ / വാട്സ്ആപ്പ് ബട്ടണുകൾ -->
             <div class="flex gap-2 ml-2 mt-1">
-                <a href="tel:${m.phone}" class="flex-1 bg-white border-2 border-slate-100 text-slate-600 py-3 rounded-xl flex justify-center items-center gap-2 active:scale-95 transition-all hover:bg-slate-50 hover:border-blue-200 hover:text-blue-600 shadow-sm">
-                    <i class="fas fa-phone-alt text-sm"></i> <span class="text-[11px] font-black tracking-widest">${m.phone}</span>
+                <a href="tel:${escapeHTML(m.phone)}" class="flex-1 bg-white border-2 border-slate-100 text-slate-600 py-3 rounded-xl flex justify-center items-center gap-2 active:scale-95 transition-all hover:bg-slate-50 hover:border-blue-200 hover:text-blue-600 shadow-sm">
+                    <i class="fas fa-phone-alt text-sm"></i> <span class="text-[11px] font-black tracking-widest">${escapeHTML(m.phone)}</span>
                 </a>
 <a href="javascript:void(0)" onclick="openWhatsAppLink('${getWALink(m.phone, 'السلام عليكم \n' + m.name + ' (MID: ' + m.id + ')')}')" class="w-14 bg-[#25D366]/10 border-2 border-[#25D366]/20 text-[#25D366] rounded-xl flex justify-center items-center active:scale-95 transition-all hover:bg-[#25D366]/20 shadow-sm">
                     <i class="fab fa-whatsapp text-xl"></i>
@@ -5419,12 +5472,13 @@
             document.getElementById('rcptMonth').innerText = `${month} ${year}`;
 
             // തുക ലഭ്യമല്ലെങ്കിൽ 50 എന്ന് കാണിക്കാൻ താഴെ കാണുന്ന വരി മാറ്റുക
-            document.getElementById('rcptAmount').innerText = '₹' + (amount || 50);
+            const record=fullHistory.find(h=>h.month===month&&String(h.year)===String(year));
+            document.getElementById('rcptAmount').innerText = '₹' + (Number(amount)||Number(record?.amount)||Number(currentMember.fee));
 
-            let d = new Date();
-            document.getElementById('rcptDate').innerText = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+            let d = record?.paidAt ? new Date(record.paidAt) : null;
+            document.getElementById('rcptDate').innerText = d ? d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Payment date unavailable';
 
-            const rcptNode = document.getElementById('receiptCard');
+            const rcptNode = cloneReceiptCard();
 
             setTimeout(() => {
                 html2canvas(rcptNode, { scale: 3, backgroundColor: '#ffffff' }).then(canvas => {
@@ -5436,7 +5490,7 @@
                 }).catch(e => {
                     showLoader(false);
                     alert("റെസീപ്റ്റ് ഡൗൺലോഡ് ചെയ്യാൻ കഴിഞ്ഞില്ല.");
-                });
+                }).finally(()=>rcptNode.remove());
             }, 500);
         }
         // റിമൈൻഡർ മോഡൽ തുറക്കാനുള്ള ഫംഗ്ഷൻ
@@ -5479,8 +5533,8 @@
                             <div class="flex items-center gap-3 overflow-hidden">
                                 <div class="w-6 h-6 rounded-full bg-slate-50 border border-slate-100 text-slate-400 flex items-center justify-center font-black text-[10px] shrink-0 group-hover:bg-blue-50 group-hover:text-blue-600 transition-colors">${index}</div>
                                 <div class="truncate">
-                                    <p class="font-black text-[13px] text-slate-800 uppercase leading-none mb-1 truncate">${m.name}</p>
-                                    <p class="text-[9px] text-slate-400 font-bold tracking-widest truncate">${m.phone}</p>
+                                    <p class="font-black text-[13px] text-slate-800 uppercase leading-none mb-1 truncate">${escapeHTML(m.name)}</p>
+                                    <p class="text-[9px] text-slate-400 font-bold tracking-widest truncate">${escapeHTML(m.phone)}</p>
                                 </div>
                             </div>
                             <button onclick="openWhatsAppLink('${getWALink(m.phone, 'السلام عليكم \n' + m.name + ' (MID: ' + m.id + '),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യയിൽ ' + currentMonthStr + 'നിലവിലെ മാസത്തെ തുക  അടച്ചിട്ടില്ല.\nhttps://muaawina.github.io/muaawina.com/')}')" class="w-9 h-9 bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-xl flex items-center justify-center active:scale-95 transition-all shadow-sm shrink-0 hover:bg-emerald-100">
@@ -5541,29 +5595,25 @@
                     if (m.phone) {
                         const countSpan = Swal.getHtmlContainer().querySelector('b');
                         if (countSpan) {
-                            countSpan.textContent = `${i + 1}/${defaulters.length} (പേര്: ${m.name})`;
+                            countSpan.textContent = `${i + 1}/${defaulters.length} (പേര്: ${escapeHTML(m.name)})`;
                         }
 
                         try {
                             let finalPhone = "91" + String(m.phone).replace(/\D/g, '').slice(-10);
-                            let msgText = `السلام عليكم \n${m.name} (MID: ${m.id}),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യയിൽ ${currentMonthStr} നിലവിലെ മാസത്തെ തുക അടച്ചിട്ടില്ല. ദയവായി അടക്കുക.\nhttps://muaawina.github.io/muaawina.com/`;
+                            let msgText = `السلام عليكم \n${escapeHTML(m.name)} (MID: ${escapeHTML(m.id)}),\nനിങ്ങളുടെ MUAAWINA വരിസംഖ്യയിൽ ${currentMonthStr} നിലവിലെ മാസത്തെ തുക അടച്ചിട്ടില്ല. ദയവായി അടക്കുക.\nhttps://muaawina.github.io/muaawina.com/`;
 
-                            await fetch(BOT_BASE_URL + "/send-message", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
+                            await queueBotMessage("/send-message", {
                                     phone: finalPhone,
                                     message: msgText,
                                     isGroup: false
-                                })
-                            });
+                                });
                             successCount++;
                         } catch (err) {
-                            console.error(`Failed to send reminder to ${m.name}:`, err);
+                            console.error(`Failed to send reminder to ${escapeHTML(m.name)}:`, err);
                         }
 
                         if (i < defaulters.length - 1) {
-                            await new Promise(resolve => setTimeout(resolve, 5000));
+                            
                         }
                     }
                 }
@@ -5582,7 +5632,7 @@
 
         // അഡ്മിൻ പാനലിൽ നിന്ന് നോട്ടിഫിക്കേഷൻ അയക്കാനുള്ള ഫംഗ്ഷൻ (Error കാണിക്കാൻ)
         function broadcastPush() {
-            const msg = document.getElementById('pushMsg').value;
+            const msg = document.getElementById('pushMsg')?.value || document.getElementById('broadcastMessage')?.value || '';
             if (!msg) return Swal.fire('ശ്രദ്ധിക്കുക', 'സന്ദേശം ടൈപ്പ് ചെയ്യുക!', 'warning');
 
             showLoader(true);
@@ -5592,7 +5642,7 @@
                     Swal.fire('പിഴവ് എവിടെയാണെന്ന് കണ്ടെത്തി!', res.error, 'error');
                 } else if (res.success) {
                     Swal.fire('വിജയിച്ചു', 'നോട്ടിഫിക്കേഷൻ അയച്ചു! 🚀', 'success');
-                    document.getElementById('pushMsg').value = '';
+                    if(document.getElementById('pushMsg'))document.getElementById('pushMsg').value='';
                 } else {
                     Swal.fire('പിഴവ്', 'API ബന്ധിപ്പിക്കാൻ കഴിഞ്ഞില്ല. Code.gs-ൽ doPost അപ്ഡേറ്റ് ആയോ എന്ന് നോക്കുക.', 'error');
                 }
@@ -5631,19 +5681,15 @@
                     if (m.phone) {
                         try {
                             let finalPhone = "91" + String(m.phone).replace(/\D/g, '').slice(-10);
-                            await fetch(BOT_BASE_URL + "/send-media", {
-                                method: "POST",
-                                headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({
+                            await queueBotMessage("/send-media", {
                                     phone: finalPhone,
                                     base64: base64,
                                     caption: caption,
                                     fileType: fileType,
                                     mimeType: file.type
-                                })
-                            });
+                                });
                             successCount++;
-                            await new Promise(resolve => setTimeout(resolve, 3000));
+                            
                         } catch (e) { console.log(e); }
                     }
                 }
@@ -5666,9 +5712,9 @@
 
             bt.forEach(b => {
                 html += `
-            <button onclick="toggleBatch(this, '${b}')" data-batch="${b}" 
+            <button onclick="toggleBatch(this, ${handlerArg(b)})" data-batch="${escapeHTML(b)}" 
             class="batch-pill p-3 rounded-xl border-2 border-slate-200 bg-white text-slate-600 text-[10px] font-black uppercase">
-                ${b}
+                ${escapeHTML(b)}
             </button>`;
             });
             container.innerHTML = html;
@@ -5719,7 +5765,7 @@
             let d = new Date();
             document.getElementById('rcptDate').innerText = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' + d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 
-            const rcptNode = document.getElementById('receiptCard');
+            const rcptNode = cloneReceiptCard();
 
             // ലോഗോ ലോഡ് ആകാൻ അല്പം സമയം നൽകുന്നു
             await new Promise(resolve => setTimeout(resolve, 1000));
@@ -5752,7 +5798,7 @@
                 callAPI('sendWhatsAppMedia', payload).then((waRes) => {
                     showLoader(false);
                     if (waRes && waRes.success) {
-                        Swal.fire('വിജയിച്ചു!', 'അപ്രൂവൽ നൽകുകയും ഒറിജിനൽ റെസീപ്റ്റ് വാട്സ്ആപ്പിൽ അയക്കുകയും ചെയ്തു.', 'success').then(() => adminLogin());
+                        Swal.fire('വിജയിച്ചു!', waRes.queued ? 'അപ്രൂവൽ നൽകി. റെസീപ്റ്റ് വാട്സ്ആപ്പിലേക്ക് ബാക്ക്ഗ്രൗണ്ടിൽ അയക്കും.' : 'അപ്രൂവൽ നൽകുകയും ഒറിജിനൽ റെസീപ്റ്റ് വാട്സ്ആപ്പിൽ അയക്കുകയും ചെയ്തു.', 'success').then(() => adminLogin());
                     } else {
                         Swal.fire('ശ്രദ്ധിക്കുക', 'അപ്രൂവൽ നൽകി, പക്ഷേ വാട്സ്ആപ്പ് മെസ്സേജ് അയക്കാൻ കഴിഞ്ഞില്ല.', 'warning').then(() => adminLogin());
                     }
@@ -5762,7 +5808,7 @@
                 showLoader(false);
                 console.error("Auto Receipt Error:", e);
                 Swal.fire('Error', 'റെസീപ്റ്റ് ഉണ്ടാക്കുന്നതിൽ പിഴവ് സംഭവിച്ചു.', 'error').then(() => adminLogin());
-            }
+            } finally { rcptNode.remove(); }
         }
         // --- App Install & Notification Logic ---
         let deferredPrompt;
@@ -5827,6 +5873,7 @@
         }
         // പേജുകൾ മാറാനുള്ള ഫംഗ്ഷൻ (Directory ഉൾപ്പെടുത്തിയത്)
         function switchAppTab(tabName) {
+            activeMemberTab=tabName;
             // ഇപ്പോൾ 5 ടാബുകൾ ഉണ്ട്
             const tabs = ['home', 'dues', 'history', 'directory', 'profile'];
 
@@ -5914,12 +5961,10 @@
                     Swal.fire('പിഴവ്', res.error, 'error');
                 } else {
                     // ഫോൺ നമ്പറോ പാസ്‌വേഡോ മാറ്റിയിട്ടുണ്ടെങ്കിൽ ബ്രൗസറിൽ അത് അപ്ഡേറ്റ് ചെയ്യുന്നു (അടുത്ത ലോഗിന് വേണ്ടി)
-                    if (phoneVal) localStorage.setItem('muaawina_phone', phoneVal);
-                    if (passwordVal) localStorage.setItem('muaawina_mid', passwordVal);
+                    if(res.token)saveSession(res.token,'member');
+                    fetchMemberDetails(true);
 
-                    Swal.fire('വിജയിച്ചു!', 'പ്രൊഫൈൽ വിജയകരമായി അപ്ഡേറ്റ് ചെയ്തു.', 'success').then(() => {
-                        fetchMemberDetails(true); // വിവരങ്ങൾ റീലോഡ് ചെയ്യുന്നു
-                    });
+                    Swal.fire('വിജയിച്ചു!', 'പ്രൊഫൈൽ വിജയകരമായി അപ്ഡേറ്റ് ചെയ്തു.', 'success');
                 }
             }).catch(err => {
                 showLoader(false);
@@ -6385,7 +6430,7 @@
             if (batchFilter && adminMembers) {
                 let bt = [...new Set(adminMembers.map(m => m.batch))].filter(b => b && b !== 'UNASSIGNED').sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
                 let html = '<option value="all">എല്ലാ ബാച്ചുകളും (All Batches)</option>';
-                bt.forEach(b => html += `<option value="${b}">${b}</option>`);
+                bt.forEach(b => html += `<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`);
                 batchFilter.innerHTML = html;
             }
             if (APP_CONFIG && APP_CONFIG.CAMPAIGN_ACTIVE) {
@@ -6619,12 +6664,12 @@
             listEl.innerHTML = highlightsList.map((h, i) => `
                 <div class="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex gap-3 relative group">
                     <div class="w-16 h-16 rounded-xl overflow-hidden bg-slate-200 border shadow-inner shrink-0">
-                        <img src="${h.url}" class="w-full h-full object-cover">
+                        <img src="${safeAssetURL(h.url)}" class="w-full h-full object-cover">
                     </div>
                     <div class="flex-1 min-w-0 flex flex-col justify-between py-0.5">
                         <div>
-                            <h4 class="font-black text-xs text-slate-800 truncate mb-0.5">${h.heading || 'No Heading'}</h4>
-                            <p class="text-[10px] font-bold text-slate-400 line-clamp-2 leading-relaxed">${h.desc || 'No description'}</p>
+                            <h4 class="font-black text-xs text-slate-800 truncate mb-0.5">${escapeHTML(h.heading || 'No Heading')}</h4>
+                            <p class="text-[10px] font-bold text-slate-400 line-clamp-2 leading-relaxed">${escapeHTML(h.desc || 'No description')}</p>
                         </div>
                         <button onclick="deletePoster(${h.index})" 
                             class="self-start text-[8px] font-black text-rose-600 bg-rose-50 border border-rose-100 px-2.5 py-1 rounded-lg uppercase tracking-wider active:scale-95 transition-all hover:bg-rose-100 flex items-center gap-1">
@@ -7091,7 +7136,17 @@
             }
         });
 
-        // Unicode text and IME composition are preserved.
+        function cloneReceiptCard() {
+            const clone=document.getElementById('receiptCard').cloneNode(true);
+            clone.removeAttribute('id');clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
+            Object.assign(clone.style,{position:'fixed',left:'-10000px',top:'0',display:'block'});
+            document.body.appendChild(clone);return clone;
+        }
+        function escapeHTML(value) {return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+        function handlerArg(value) {return escapeHTML(JSON.stringify(value));}
+        function safeAssetURL(value) {try{const u=new URL(String(value),location.href);return ['https:','http:'].includes(u.protocol)?escapeHTML(u.href):'';}catch(e){return '';}}
+        // Preserve Unicode and IME composition in names, headings, and descriptions.
+        // Phone, IDs and URLs are validated by their own field/server rules.
     </script>
 </body>
 
