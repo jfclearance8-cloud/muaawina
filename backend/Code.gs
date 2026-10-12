@@ -1597,7 +1597,7 @@ function repairPaymentNotifications() {
   const lock=LockService.getScriptLock();if(!lock.tryLock(1000))return;
   try {
     const q=getSS().getSheetByName('Approval_Queue');const data=q.getDataRange().getValues();const groups={};
-    data.slice(1).forEach((r,i)=>{if(r[10]!=='Waiting')return;const key=String(r[1])+'|'+new Date(r[0]).getTime();(groups[key]??=[]).push({row:r,index:i+2});});
+    data.slice(1).forEach((r,i)=>{if(r[10]!=='Waiting')return;const key=String(r[1])+'|'+new Date(r[0]).getTime();if(!groups[key])groups[key]=[];groups[key].push({row:r,index:i+2});});
     Object.keys(groups).forEach(key=>{
       const group=groups[key],member=memberRecord(group[0].row[1]).row;
       queuePaymentNotifications(member,group.map(x=>({year:x.row[4],month:x.row[5]})),group.length>1,'payment:'+key);
