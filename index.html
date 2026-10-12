@@ -2256,7 +2256,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         window.onload = function() {
             localStorage.removeItem('muaawina_admin_login_hash');
             if(authToken && authRole==='admin') adminLogin(true);
-            else if(authToken && authRole==='member'){openMemberShell({name:''});fetchMemberDetails(true);}
+            else if(authToken && authRole==='member') fetchMemberDetails(true);
         };
 
         // Only initial login blocks the screen. Other requests use their button.
@@ -2294,7 +2294,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         }
         function goHome() {
             const oldToken=authToken;
-            ['admin','member'].forEach(role=>{bootReleases[role].forEach(r=>r());bootReleases[role]=[];});
+
             authToken='';authRole='';authGeneration++;memberSessionGeneration++;memberRefreshRevision++;
             localStorage.removeItem('muaawina_session_token');localStorage.removeItem('muaawina_session_role');
             if(oldToken)fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({action:'logout',token:oldToken})}).catch(()=>{});
@@ -2350,13 +2350,12 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             const wasLoggedIn=!!currentMember;
             const selectedTab=activeMemberTab;
             showLoader(true,!wasLoggedIn);
-            return callAPI(existingSession?'getMemberData':'loginMember',{phone:p,mid:m,deferred:true},document.querySelector('#loginPage button[onclick*="fetchMemberDetails"]')).then(result=>{
+            return callAPI(existingSession?'getMemberData':'loginMember',{phone:p,mid:m}).then(result=>{
                 if(generation!==memberSessionGeneration || revision!==memberRefreshRevision)return;
                 const d=result.member || result;
                 showLoader(false);
-                if(result.error || d.error){if(currentMember)showBootFailure('member',result.error||d.error);if(errBox){errBox.innerText=result.error||d.error;errBox.classList.remove('hidden');}return;}
+                if(result.error || d.error){if(errBox){errBox.innerText=result.error||d.error;errBox.classList.remove('hidden');}return;}
                 if(result.token)saveSession(result.token,'member');
-                if(result.corePending){currentMember=d;openMemberShell(d);fetchMemberDetails(true);return;}
                 try {
                     // ലോഗിൻ വിജയകരമായാൽ ഫോണിൽ സേവ് ചെയ്യുന്നു (എപ്പോഴും ലോഗിൻ ആയി കിടക്കാൻ)
 
@@ -2372,7 +2371,6 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
 
                     if (d.config) APP_CONFIG = d.config;
                     currentMember = d;
-                    setMemberBootLoading(false);
 
                     let today = new Date();
                     globalAppYear = today.getFullYear();
@@ -2448,7 +2446,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                     upcomingMonthsList = fullHistory.filter(hist => hist.status === 'Upcoming');
 
                     document.getElementById('loginPage')?.classList.add('hidden');
-                    switchAppTab(wasLoggedIn ? activeMemberTab : 'home');
+                    switchAppTab(wasLoggedIn ? selectedTab : 'home');
                     document.getElementById('bottomNav').classList.remove('hidden');
                     toggleScroll(false);
 
@@ -2561,8 +2559,80 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                     if (pBar) pBar.style.width = pct + '%';
                     if (pText) pText.innerText = pct;
 
-                    renderMemberHighlights(d.highlights || []);
-                    refreshHighlights();
+                    // === ഡാഷ്‌ബോർഡിൽ പോസ്റ്ററുകൾ കാണിക്കുന്നു (സ്ലൈഡർ രൂപത്തിൽ) ===
+                    const highlightArea = document.getElementById('homeHighlightsArea');
+
+                    if (highlightArea) {
+                        highlightArea.innerHTML = '';
+
+                        if (d.highlights && d.highlights.length > 0) {
+                            highlightArea.innerHTML = `
+                                <div class="relative w-full group mb-6">
+                                    <div id="posterSliderWrapper" class="relative w-full overflow-hidden" style="transition: height 0.4s cubic-bezier(0.25, 1, 0.5, 1); min-height: 100px; perspective: 1200px; transform-style: preserve-3d;">
+                                        <div id="posterSliderContainer" class="flex transition-transform duration-500 cubic-bezier(0.25, 1, 0.5, 1) w-full items-start" style="transform-style: preserve-3d;">
+                                            <!-- Slides will go here dynamically -->
+                                        </div>
+                                    </div>
+                                    <button id="sliderPrevBtn" class="absolute left-3 top-1/2 -translate-y-1/2 bg-white/80 backdrop-blur-sm text-slate-700 w-8 h-8 rounded-full flex items-center justify-center shadow-md active:scale-90 transition-all opacity-0 group-hover:opacity-100 duration-300 z-20">
+                                        <i class="fas fa-chevron-left text-xs"></i>
+                                    </button>
+                                    <button id="sliderNextBtn" class="absolute right-3 top-1/2 -translate-y-1/2 bg-white/80 backdrop-blur-sm text-slate-700 w-8 h-8 rounded-full flex items-center justify-center shadow-md active:scale-90 transition-all opacity-0 group-hover:opacity-100 duration-300 z-20">
+                                        <i class="fas fa-chevron-right text-xs"></i>
+                                    </button>
+                                    <div id="sliderDots" class="absolute bottom-3 left-1/2 -translate-x-1/2 flex gap-1.5 z-20">
+                                        <!-- Dots will go here dynamically -->
+                                    </div>
+                                </div>
+                            `;
+
+                            const container = document.getElementById('posterSliderContainer');
+                            d.highlights.forEach(h => {
+                                const hasMeta = h.heading || h.desc;
+                                const slideHtml = `
+                                    <div class="poster-slide w-full flex-shrink-0 bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden flex flex-col justify-start" style="opacity: 0.4; transform: scale(0.95); transition: opacity 0.5s ease-out, transform 0.5s ease-out; transform-style: preserve-3d;">
+                                        <img src="${safeAssetURL(h.url)}" class="w-full h-auto block" alt="Poster" onload="adjustSliderHeight()">
+                                        ${hasMeta ? `
+                                            <div class="slide-meta p-5 border-t border-slate-50 bg-slate-50/30" style="transform: translateY(15px); opacity: 0; transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);">
+                                                ${h.heading ? `<h4 class="text-xs font-black text-slate-800 uppercase tracking-wider mb-1">${escapeHTML(h.heading)}</h4>` : ''}
+                                                ${h.desc ? `<p class="text-[10px] font-bold text-slate-500 leading-relaxed">${escapeHTML(h.desc)}</p>` : ''}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                                container.innerHTML += slideHtml;
+                            });
+
+                            initPosterSlider();
+                        } else {
+                            highlightArea.innerHTML = '<div class="bg-amber-50 p-5 rounded-2xl border border-amber-100 text-center"><p class="text-[10px] font-bold text-amber-600">പുതിയ അപ്ഡേറ്റുകൾ ഉടൻ വരുന്നു...</p></div>';
+                        }
+                    }
+
+                    // === Pinterest Grid rendering ===
+                    const pinterestGrid = document.getElementById('pinterestGrid');
+                    const pinterestSection = document.getElementById('pinterestSection');
+                    if (pinterestGrid && pinterestSection) {
+                        pinterestGrid.innerHTML = '';
+                        if (d.highlights && d.highlights.length > 0) {
+                            pinterestSection.classList.remove('hidden');
+                            d.highlights.forEach((h, index) => {
+                                const itemHtml = `
+                                    <div class="pinterest-item" onclick="openPinterestDetail(${index})">
+                                        <img src="${safeAssetURL(h.url)}" alt="${escapeHTML(h.heading || 'Poster')}">
+                                        ${(h.heading || h.desc) ? `
+                                            <div class="pinterest-meta">
+                                                ${h.heading ? `<h4 class="pinterest-title">${escapeHTML(h.heading)}</h4>` : ''}
+                                                ${h.desc ? `<p class="pinterest-desc truncate-2-lines">${escapeHTML(h.desc)}</p>` : ''}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                `;
+                                pinterestGrid.innerHTML += itemHtml;
+                            });
+                        } else {
+                            pinterestSection.classList.add('hidden');
+                        }
+                    }
 
                     // === Campaign Home Card rendering ===
                     const homeCampaignCard = document.getElementById('homeCampaignCard');
@@ -2932,11 +3002,11 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             if(adminSessionActive)return loadAdminData();
             const generation=adminSessionGeneration;
             showLoader(true,true);
-            if(restore){if(authToken&&authRole==='admin'){openAdminShell();return loadAdminData();}showLoader(false);return;}
-            const result=await callAPI('loginAdmin',{password:document.getElementById('adminPass')?.value||''},document.querySelector('#adminModal button[onclick*="adminLogin"]'));
+            if(restore){if(authToken&&authRole==='admin')return loadAdminData();showLoader(false);return;}
+            const result=await callAPI('loginAdmin',{password:document.getElementById('adminPass')?.value||''});
             if(generation!==adminSessionGeneration)return;
             if(!result?.success||!result.token){showLoader(false);return Swal.fire('പിഴവ്',result?.error||'Backend security update deploy ചെയ്യണം.','error');}
-            saveSession(result.token,'admin');openAdminShell();return loadAdminData();
+            saveSession(result.token,'admin');return loadAdminData();
         }
         function loadAdminData(loginDigest = null) {
             const generation = adminSessionGeneration;
@@ -2944,12 +3014,11 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             const aModal = document.getElementById('adminModal');
             if (aModal) aModal.classList.add('hidden');
 
-            return callAPI('getAdminData', {refreshRevision: adminRefreshRevision,deferHighlights:true}).then(d => {
+            return callAPI('getAdminData', {refreshRevision: adminRefreshRevision}).then(d => {
                 if (generation !== adminSessionGeneration || revision !== adminRefreshRevision) return;
                 showLoader(false);
-                if (d.error){showBootFailure('admin',d.error);return Swal.fire('Error', d.error, 'error');}
+                if (d.error) return Swal.fire('Error', d.error, 'error');
                 adminSessionActive = true;
-                setAdminBootLoading(false);
                 
                 if (document.getElementById('adminPass')) document.getElementById('adminPass').value = '';
 
@@ -2990,7 +3059,6 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                 updateAdminStats(document.getElementById('batchReportFilter')?.value||'all');
                 renderApprovals(pendingApprovalsList);
                 switchAdminTab(activeAdminTab);
-                refreshHighlights();
             });
         }
         function switchAdminTab(t) {
@@ -6598,7 +6666,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             }
 
             listEl.innerHTML = highlightsList.map((h, i) => `
-                <div class="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex gap-3 relative group">
+                <div data-poster-index="${h.index}" class="bg-slate-50/80 p-3 rounded-2xl border border-slate-100 flex gap-3 relative group">
                     <div class="w-16 h-16 rounded-xl overflow-hidden bg-slate-200 border shadow-inner shrink-0">
                         <img src="${safeAssetURL(h.url)}" class="w-full h-full object-cover">
                     </div>
@@ -6609,8 +6677,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                         </div>
                         <div class="flex items-center gap-2 mt-2">
                         <span class="text-[10px] font-bold text-slate-400">${i+1}</span>
-                        <button type="button" onclick="movePoster(${h.index}, -1, this)" ${i===0?'disabled':''} aria-label="Move poster up" class="px-2 py-1 rounded-lg border text-xs disabled:opacity-30">↑ മുകളിലേക്ക്</button>
-                        <button type="button" onclick="movePoster(${h.index}, 1, this)" ${i===highlightsList.length-1?'disabled':''} aria-label="Move poster down" class="px-2 py-1 rounded-lg border text-xs disabled:opacity-30">↓ താഴേക്ക്</button>
+                        <button type="button" data-poster-drag="${h.index}" aria-label="Drag to arrange poster" style="touch-action:none;cursor:grab" class="px-3 py-2 rounded-lg border text-sm">⠿ Drag</button>
                         <button onclick="deletePoster(${h.index})" 
                             class="self-start text-[8px] font-black text-rose-600 bg-rose-50 border border-rose-100 px-2.5 py-1 rounded-lg uppercase tracking-wider active:scale-95 transition-all hover:bg-rose-100 flex items-center gap-1">
                             <i class="fas fa-trash-alt text-[7px]"></i> Delete
@@ -7095,22 +7162,6 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                 adminPosters=result.highlights;renderAdminPosters(adminPosters);
             });
         }
-        const bootReleases={admin:[],member:[]};
-        function bootLoading(role,loading) {
-            bootReleases[role].forEach(r=>r());bootReleases[role]=[];
-            const ids=role==='admin'?['adminPage']:['homePage','memberPage','profilePage','historyPage','directoryPage'];
-            let banner=document.getElementById(role+'BootNotice');
-            if(!banner){banner=document.createElement('div');banner.id=role+'BootNotice';banner.className='p-3 text-center text-sm text-blue-700 bg-blue-50';document.getElementById(role==='admin'?'adminPage':'homePage').prepend(banner);}
-            banner.textContent=loading?'വിവരങ്ങൾ ലോഡ് ചെയ്യുന്നു…':'';banner.classList.toggle('hidden',!loading);
-            if(loading)ids.forEach(id=>document.getElementById(id)?.querySelectorAll('button,input,select').forEach(el=>{if((el.getAttribute('onclick')||'').includes('goHome'))return;const before=el.disabled;el.disabled=true;bootReleases[role].push(()=>el.disabled=before);}));
-        }
-        function setAdminBootLoading(value){bootLoading('admin',value);}
-        function setMemberBootLoading(value){bootLoading('member',value);}
-        function openAdminShell(){document.getElementById('adminModal')?.classList.add('hidden');document.getElementById('loginPage')?.classList.add('hidden');document.getElementById('adminPage')?.classList.remove('hidden');['admTotal','admPending'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='…';});switchAdminTab(activeAdminTab);setAdminBootLoading(true);showLoader(false);}
-        function openMemberShell(member){if(!currentMember)currentMember={loading:true};document.getElementById('homeWelcomeName').innerText=member.name||'';document.getElementById('loginPage')?.classList.add('hidden');document.getElementById('bottomNav')?.classList.remove('hidden');switchAppTab('home');['mTotalExpected','mPaid','mBalance','homeTotalMembers','homeDueAmount'].forEach(id=>{const el=document.getElementById(id);if(el)el.innerText='…';});setMemberBootLoading(true);showLoader(false);}
-        function showBootFailure(role,message){const banner=document.getElementById(role+'BootNotice');if(!banner)return;banner.textContent=message;const retry=document.createElement('button');retry.type='button';retry.textContent='വീണ്ടും ശ്രമിക്കുക';retry.className='ml-2 underline';retry.onclick=()=>role==='admin'?loadAdminData():fetchMemberDetails(true);banner.appendChild(retry);}
-
-        async function refreshHighlights(){const generation=authGeneration,token=authToken;const result=await callAPI('getHighlights');if(generation!==authGeneration||token!==authToken)return;if(result.success){if(authRole==='admin')renderAdminPosters(result.highlights);else renderMemberHighlights(result.highlights);}}
         function renderMemberHighlights(highlights){const d={highlights};
                     // === ഡാഷ്‌ബോർഡിൽ പോസ്റ്ററുകൾ കാണിക്കുന്നു (സ്ലൈഡർ രൂപത്തിൽ) ===
                     const highlightArea = document.getElementById('homeHighlightsArea');
@@ -7189,6 +7240,35 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
 
 
         }
+
+        let posterDrag=null;
+        document.addEventListener('pointerdown',event=>{
+            const handle=event.target.closest?.('[data-poster-drag]');if(!handle||heldOperations.has('poster-order'))return;
+            event.preventDefault();handle.setPointerCapture(event.pointerId);
+            posterDrag={index:Number(handle.dataset.posterDrag),target:Number(handle.dataset.posterDrag),pointer:event.pointerId,button:handle};
+            handle.closest('[data-poster-index]').style.opacity='.5';
+        });
+        document.addEventListener('pointermove',event=>{
+            if(!posterDrag||event.pointerId!==posterDrag.pointer)return;
+            const card=document.elementFromPoint(event.clientX,event.clientY)?.closest('[data-poster-index]');
+            document.querySelectorAll('[data-poster-index]').forEach(el=>el.style.outline='');
+            if(card){posterDrag.target=Number(card.dataset.posterIndex);card.style.outline='2px solid #2563eb';}
+            if(event.clientY<90)window.scrollBy(0,-18);else if(event.clientY>window.innerHeight-90)window.scrollBy(0,18);
+        });
+        function cancelPosterDrag(){document.querySelectorAll('[data-poster-index]').forEach(el=>{el.style.outline='';el.style.opacity='';});posterDrag=null;}
+        document.addEventListener('pointercancel',cancelPosterDrag);
+        document.addEventListener('pointerup',event=>{
+            if(!posterDrag||event.pointerId!==posterDrag.pointer)return;
+            const drag=posterDrag;cancelPosterDrag();if(drag.index===drag.target)return;
+            holdAction('poster-order',drag.button,async()=>{
+                const order=adminPosters.map(h=>h.index),from=order.indexOf(drag.index),to=order.indexOf(drag.target);
+                order.splice(to,0,order.splice(from,1)[0]);
+                const result=await callAPI('reorderHighlights',{order,version:adminPosters[0]?.version},drag.button);
+                if(!result.success)return Swal.fire('പിഴവ്',result.error||'ക്രമം save ചെയ്യാനായില്ല','error');
+                renderAdminPosters(result.highlights);
+            });
+        });
+
         function cloneReceiptCard() {
             const clone=document.getElementById('receiptCard').cloneNode(true);
             clone.removeAttribute('id');clone.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
