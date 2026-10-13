@@ -327,14 +327,18 @@
             display:flex;align-items:center;justify-content:center;
         }
         .loader-container { display:flex;flex-direction:column;align-items:center;gap:18px; }
-        .loader-logo-wrap { position:relative;width:120px;height:120px;display:grid;place-items:center; }
-        .loader-logo-wrap::before {content:'';position:absolute;inset:9px;background:radial-gradient(circle,#dbeafe 0%,#eff6ff 52%,transparent 72%);border-radius:50%;animation:logo-glow 2.4s ease-in-out infinite;}
-        .loader-logo {width:94px;height:94px;object-fit:contain;position:relative;animation:logo-breathe 2.4s ease-in-out infinite;filter:drop-shadow(0 8px 12px #1e3a8a15);}
-        .loader-brand {font-family:'Manjari',sans-serif;font-size:14px;font-weight:700;letter-spacing:.16em;color:#1e3a8a;}
-        .loader-note {font-family:'Manjari',sans-serif;font-size:12px;color:#64748b;margin-top:-9px;}
-        @keyframes logo-breathe {0%,100%{transform:translateY(2px) scale(.97);opacity:.8}50%{transform:translateY(-5px) scale(1.03);opacity:1}}
-        @keyframes logo-glow {0%,100%{transform:scale(.9);opacity:.45}50%{transform:scale(1.14);opacity:.9}}
-        @media(prefers-reduced-motion:reduce){.loader-logo,.loader-logo-wrap::before{animation:none;}}
+        .loader-logo-wrap {position:relative;width:120px;height:120px;display:grid;place-items:center;}
+        .loader-logo-wrap::before {content:'';position:absolute;inset:12px;background:radial-gradient(circle,#eff6ff,transparent 70%);border-radius:50%;}
+        .loader-logo {width:94px;height:94px;object-fit:contain;position:relative;filter:drop-shadow(0 7px 12px #1e3a8a12);animation:logo-intro 4s ease-in-out infinite;}
+        .loader-brand {width:240px;height:48px;margin-top:-8px;overflow:visible;}
+        .loader-brand text {font-family:'Montserrat',Arial,sans-serif;font-size:25px;font-weight:800;letter-spacing:2px;fill:#1e3a8a;stroke:#1e3a8a;stroke-width:.8;paint-order:stroke;stroke-dasharray:230;animation:brand-write 4s ease-in-out infinite;}
+        .loader-writing-mask {animation:brand-reveal 4s linear infinite;}
+        .loader-note {font-family:'Montserrat',Arial,sans-serif;font-size:11px;letter-spacing:.08em;color:#94a3b8;margin-top:-6px;}
+        @keyframes logo-intro {0%{opacity:0;transform:translateY(8px) scale(.92);clip-path:inset(0 100% 0 0)}18%{opacity:1;transform:translateY(0) scale(1);clip-path:inset(0 0 0 0)}88%{opacity:1;transform:translateY(0) scale(1);clip-path:inset(0 0 0 0)}100%{opacity:0;transform:translateY(-3px) scale(1);clip-path:inset(0 0 0 0)}}
+        @keyframes brand-reveal {0%,18%{width:0}60%,90%,100%{width:260px}}
+        @keyframes brand-write {0%,18%{stroke-dashoffset:230;fill-opacity:0;stroke-opacity:1;opacity:1}58%{stroke-dashoffset:0;fill-opacity:0;stroke-opacity:1;opacity:1}70%,88%{stroke-dashoffset:0;fill-opacity:1;stroke-opacity:0;opacity:1}100%{stroke-dashoffset:0;fill-opacity:1;stroke-opacity:0;opacity:0}}
+        @media(prefers-reduced-motion:reduce){.loader-logo,.loader-brand text,.loader-writing-mask{animation:none;}.loader-writing-mask{width:260px}.loader-brand text{fill-opacity:1;stroke:none;}}
+
 
         /* പുതിയ ഫ്ലോട്ടിംഗ് ബാർ സ്റ്റൈൽ */
         .nav-floating-wrapper {
@@ -476,8 +480,11 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
     <div id="loader" role="status" aria-live="polite" aria-label="MUAAWINA loading">
         <div class="loader-container">
             <div class="loader-logo-wrap"><img src="logo.png" width="94" height="94" class="loader-logo" alt="MUAAWINA Logo" fetchpriority="high"></div>
-            <div class="loader-brand">MUAAWINA</div>
-            <div class="loader-note">ലോഡ് ചെയ്യുന്നു…</div>
+            <svg class="loader-brand" viewBox="0 0 260 52" role="img" aria-label="MUAAWINA">
+                <defs><clipPath id="loaderWordReveal"><rect class="loader-writing-mask" x="0" y="0" width="260" height="52" /></clipPath></defs>
+                <text x="130" y="36" text-anchor="middle" clip-path="url(#loaderWordReveal)">MUAAWINA</text>
+            </svg>
+            <div class="loader-note">Loading…</div>
         </div>
     </div>
 
