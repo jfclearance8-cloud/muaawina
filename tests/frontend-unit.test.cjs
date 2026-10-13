@@ -22,3 +22,12 @@ test('logout clears session and private client data',()=>{f.goHome();assert.equa
  await assert.rejects(f.holdAction('failed-action',button,()=>{throw Error('failed')}));assert.equal(button.disabled,false);assert.equal(button.innerHTML,'Allow');
  console.log('PASS failed action restores its original button');
 })().catch(e=>{console.error(e);process.exit(1)});
+
+(async()=>{
+ const button={isConnected:true,innerHTML:'Refresh',disabled:false,getAttribute:()=>null,setAttribute(){},removeAttribute(){}};
+ vm.runInContext("adminSessionActive=true;authRole='admin';activeAdminTab='posters';loadAdminData=async()=>{refreshCalls=(typeof refreshCalls==='undefined'?0:refreshCalls)+1;}",context);
+ const before=vm.runInContext('adminRefreshRevision',context);
+ const request=f.refreshAdminData(button);assert.equal(button.disabled,true);assert.ok(button.innerHTML.includes('Processing'));
+ await request;assert.equal(vm.runInContext('adminRefreshRevision',context),before+1);assert.equal(vm.runInContext('activeAdminTab',context),'posters');assert.equal(vm.runInContext('refreshCalls',context),1);assert.equal(button.disabled,false);
+ console.log('PASS admin refresh loads data without navigation and restores its button');
+})().catch(e=>{console.error(e);process.exit(1)});
