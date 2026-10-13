@@ -517,6 +517,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
 #loginPage input,#homePage,#memberPage,#profilePage { font-family:'Manjari',sans-serif; }
 @media (prefers-reduced-motion:reduce) { #loginPage *,#homePage *,#memberPage * { animation:none !important; scroll-behavior:auto; } }
 </style>
+<style>#adminDataRefresh[aria-busy="true"] i { animation:button-spin .8s linear infinite; }</style>
 </head>
 
 <body class="min-h-screen text-slate-800 pb-10">
@@ -997,17 +998,15 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         </div>
 
         <div id="adminPage" class="hidden p-4 sm:p-6 fade-in">
-            <div class="flex justify-end mb-3">
-                <button type="button" id="adminDataRefresh" onclick="refreshAdminData(this)" class="bg-blue-50 text-blue-700 font-bold px-4 py-2 rounded-xl text-xs border border-blue-100 shadow-sm flex items-center gap-2 active:scale-95" aria-label="Refresh admin data">
-                    <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
-                </button>
-            </div>
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-lg font-black text-slate-800 tracking-tight italic">അഡ്മിൻ പാനൽ</h2>
                 <div class="flex gap-2">
                     <button onclick="openReminderModal()"
                         class="bg-amber-50 text-amber-600 font-bold px-3 py-2 rounded-xl text-xs active:scale-95 border border-amber-100 shadow-sm flex items-center gap-1.5"><i
                             class="fas fa-bell"></i> റിമൈൻഡർ</button>
+                    <button type="button" id="adminDataRefresh" onclick="refreshAdminData(this)" class="w-8 h-8 self-center shrink-0 bg-blue-50 text-blue-600 rounded-lg border border-blue-100 flex items-center justify-center active:scale-95" aria-label="Refresh admin data" title="Refresh">
+                        <i class="fas fa-sync-alt text-xs" aria-hidden="true"></i>
+                    </button>
                     <button onclick="goHome()"
                         class="bg-rose-50 text-rose-600 font-bold px-4 py-2 rounded-xl text-xs active:scale-95 border border-rose-100 shadow-sm">Logout</button>
                 </div>
@@ -3013,12 +3012,20 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             if(!result?.success||!result.token){showLoader(false);return Swal.fire('പിഴവ്',result?.error||'Backend security update deploy ചെയ്യണം.','error');}
             saveSession(result.token,'admin');return loadAdminData();
         }
+        let adminDataRefreshRequest = null;
         function refreshAdminData(button) {
             if (!adminSessionActive || authRole !== 'admin') return Promise.resolve();
-            return holdAction('admin-data-refresh', button, async () => {
+            if (adminDataRefreshRequest) return adminDataRefreshRequest;
+            const disabled = button?.disabled;
+            if(button){button.disabled=true;button.setAttribute('aria-busy','true');}
+            adminDataRefreshRequest = Promise.resolve().then(async () => {
                 adminRefreshRevision++;
                 await loadAdminData();
+            }).finally(() => {
+                if(button){button.disabled=disabled;button.removeAttribute('aria-busy');}
+                adminDataRefreshRequest=null;
             });
+            return adminDataRefreshRequest;
         }
         function loadAdminData(loginDigest = null) {
             const generation = adminSessionGeneration;
