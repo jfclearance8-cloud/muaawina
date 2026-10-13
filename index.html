@@ -3,9 +3,12 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="light">
+    <link rel="preload" as="image" href="logo.png">
+    <style>html,body{background:#fff;color-scheme:light}#loader.hidden{display:none!important}</style>
     <link rel="apple-touch-icon" href="logo.png">
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#1e3a8a">
+    <meta name="theme-color" content="#ffffff">
     <link rel="apple-touch-icon" href="logo.png">
     <title>MUAAWINA</title>
     <link rel="icon" type="image/png" href="https://muaawina.github.io/muaawina.com/logo.png">
@@ -320,69 +323,18 @@
         }
 
         #loader {
-            background: rgba(255, 255, 255, 0.95);
-            /* ബാക്ക്ഗ്രൗണ്ട് കുറച്ചുകൂടി തെളിച്ചമുള്ളതാക്കി */
-            backdrop-filter: blur(8px);
-            /* ബ്ലർ ഇഫക്റ്റ് */
+            position:fixed;inset:0;z-index:99999;background:#ffffff;
+            display:flex;align-items:center;justify-content:center;
         }
-
-        /* ലോഡറിന്റെ വലിപ്പം 80px ആയി കുറച്ചു */
-        .loader-container {
-            position: relative;
-            width: 80px;
-            height: 80px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        /* കറങ്ങുന്ന പുതിയ AI ഔട്ടർ റിംഗ് */
-        .ai-ring {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            border-radius: 50%;
-            border: 4px solid transparent;
-            /* കട്ടി കൂട്ടി */
-            border-top-color: #3b82f6;
-            /* Blue */
-            border-bottom-color: #10b981;
-            /* Emerald */
-            animation: rotate-ai-loader 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
-        }
-
-        .ai-ring::before {
-            content: '';
-            position: absolute;
-            inset: 6px;
-            /* വിടവ് കൂട്ടി */
-            border-radius: 50%;
-            border: 4px solid transparent;
-            border-left-color: #6366f1;
-            /* Indigo */
-            border-right-color: #f59e0b;
-            /* Amber */
-            animation: rotate-ai-loader 1.8s linear infinite reverse;
-        }
-
-        /* നടുവിലെ ലോഗോ (Pulse Animation ഒഴിവാക്കി) */
-        .loader-logo {
-            width: 40px;
-            /* വലിപ്പം കുറച്ചു */
-            height: 40px;
-            object-fit: contain;
-            z-index: 10;
-        }
-
-        @keyframes rotate-ai-loader {
-            from {
-                transform: rotate(0deg);
-            }
-
-            to {
-                transform: rotate(360deg);
-            }
-        }
+        .loader-container { display:flex;flex-direction:column;align-items:center;gap:18px; }
+        .loader-logo-wrap { position:relative;width:120px;height:120px;display:grid;place-items:center; }
+        .loader-logo-wrap::before {content:'';position:absolute;inset:9px;background:radial-gradient(circle,#dbeafe 0%,#eff6ff 52%,transparent 72%);border-radius:50%;animation:logo-glow 2.4s ease-in-out infinite;}
+        .loader-logo {width:94px;height:94px;object-fit:contain;position:relative;animation:logo-breathe 2.4s ease-in-out infinite;filter:drop-shadow(0 8px 12px #1e3a8a15);}
+        .loader-brand {font-family:'Manjari',sans-serif;font-size:14px;font-weight:700;letter-spacing:.16em;color:#1e3a8a;}
+        .loader-note {font-family:'Manjari',sans-serif;font-size:12px;color:#64748b;margin-top:-9px;}
+        @keyframes logo-breathe {0%,100%{transform:translateY(2px) scale(.97);opacity:.8}50%{transform:translateY(-5px) scale(1.03);opacity:1}}
+        @keyframes logo-glow {0%,100%{transform:scale(.9);opacity:.45}50%{transform:scale(1.14);opacity:.9}}
+        @media(prefers-reduced-motion:reduce){.loader-logo,.loader-logo-wrap::before{animation:none;}}
 
         /* പുതിയ ഫ്ലോട്ടിംഗ് ബാർ സ്റ്റൈൽ */
         .nav-floating-wrapper {
@@ -521,6 +473,14 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
 </head>
 
 <body class="min-h-screen text-slate-800 pb-10">
+    <div id="loader" role="status" aria-live="polite" aria-label="MUAAWINA loading">
+        <div class="loader-container">
+            <div class="loader-logo-wrap"><img src="logo.png" width="94" height="94" class="loader-logo" alt="MUAAWINA Logo" fetchpriority="high"></div>
+            <div class="loader-brand">MUAAWINA</div>
+            <div class="loader-note">ലോഡ് ചെയ്യുന്നു…</div>
+        </div>
+    </div>
+
     <div class="max-w-md mx-auto" id="mainApp">
 
         <div id="loginPage" class="login-wrapper fade-in fixed inset-0 z-50 overflow-hidden">
@@ -1636,12 +1596,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                 </div>
             </div>
         </div>
-        <div id="loader" class="hidden fixed inset-0 flex items-center justify-center z-[99999]">
-            <div class="loader-container">
-                <div class="ai-ring"></div>
-                <img src="https://muaawina.github.io/muaawina.com/logo.png" class="loader-logo" alt="Logo">
-            </div>
-        </div>
+
     </div>
     <!-- Image Cropper Modal -->
     <div id="cropModal"
@@ -2261,6 +2216,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             localStorage.removeItem('muaawina_admin_login_hash');
             if(authToken && authRole==='admin') adminLogin(true);
             else if(authToken && authRole==='member') fetchMemberDetails(true);
+            else showLoader(false);
         };
 
         // Only initial login blocks the screen. Other requests use their button.
