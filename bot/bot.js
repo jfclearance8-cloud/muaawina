@@ -138,6 +138,8 @@ async function startWhatsApp() {
         const remoteJid = msg.key.remoteJid;
         const userMessage = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase().trim();
 
+        if (await handleMuaawinaMenu(remoteJid, userMessage)) return;
+
         if (userMessage === '.id' || userMessage === 'id') {
             await sock.sendMessage(remoteJid, { text: `ഈ ചാറ്റിന്റെ/ഗ്രൂപ്പിന്റെ ഐഡി ഇതാണ്:\n\n*${remoteJid}*` });
             return;
@@ -304,6 +306,57 @@ app.post('/send-media', authorizeSend, deliveryGuard, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
+
+// Read-only member menu. Existing commands, scheduled reminders and send routes stay separate.
+const MEMBER_APP_URL = process.env.MEMBER_APP_URL || 'https://jfclearance8-cloud.github.io/muaawina/';
+const MENU_TEXT = '*MUAAWINAയിലേക്ക് സ്വാഗതം*\n\n1️⃣ എന്റെ ബാലൻസ്\n2️⃣ പണമടയ്ക്കുക\n3️⃣ അപേക്ഷയുടെ സ്ഥിതി\n4️⃣ അവസാന Receipt\n5️⃣ Admin സഹായം\n\nആവശ്യമായ നമ്പർ മറുപടിയായി അയക്കുക. Menu വീണ്ടും കാണാൻ Hi അയക്കുക.';
+function menuMonthOrder(entry) {
+ const months=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+ return Number(entry.year)*12+months.indexOf(entry.month);
+}
+async function handleMuaawinaMenu(jid,text) {
+ const greeting=['hi','hello','menu','ഹായ്','മെനു'].includes(text);
+ if(!greeting&&!/^[1-5]$/.test(text))return false;
+ const reply=message=>sock.sendMessage(jid,{text:message,linkPreview:false});
+ try {
+  if(jid.endsWith('@g.us')){await reply('വ്യക്തിഗത വിവരങ്ങൾ അറിയാൻ ബോട്ടിന്റെ private chatൽ Hi അയക്കുക.');return true;}
+  if(greeting){await reply(MENU_TEXT);return true;}
+  if(text==='2'){await reply('*പണമടയ്ക്കുക*\n\nApp തുറന്ന് നിങ്ങളുടെ member login ഉപയോഗിച്ച് പണമടയ്ക്കാം:\n'+MEMBER_APP_URL);return true;}
+  if(text==='5'){
+   const response=await axios.post(SCRIPT_URL,{action:'getAppSettings'}, {timeout:30000});
+   const config=response.data||{};
+   if(config.error)throw new Error('Settings unavailable');
+   const phone=String(config.ADMIN_WHATSAPP||'').replace(/\D/g,'');
+   await reply(phone?'*Admin സഹായം*\n\nAdminനെ ബന്ധപ്പെടുക:\nhttps://wa.me/'+(phone.length===10?'91'+phone:phone):'*Admin സഹായം*\n\nAppൽ നൽകിയ admin contact ഉപയോഗിക്കുക:\n'+MEMBER_APP_URL);
+   return true;
+  }
+  if(!jid.endsWith('@s.whatsapp.net')){await reply('നിങ്ങളുടെ നമ്പർ WhatsApp മറച്ചുവെച്ചതിനാൽ menu വഴി memberനെ തിരിച്ചറിയാനായില്ല. ബാലൻസിന് പഴയ Due [MID] command ഉപയോഗിക്കാം. മറ്റു വിവരങ്ങൾക്ക് app തുറക്കുക:\n'+MEMBER_APP_URL);return true;}
+  const phone=jid.split('@')[0].replace(/\D/g,'').slice(-10);
+  const response=await axios.post(SCRIPT_URL,{action:'getMemberData',botKey:BOT_API_KEY,data:{phone:phone,mid:''}},{timeout:30000});
+  const member=response.data||{};
+  if(member.error||!member.id){await reply('നിങ്ങളുടെ നമ്പറിൽ member വിവരങ്ങൾ കണ്ടെത്താനായില്ല. Appൽ login ചെയ്ത് പരിശോധിക്കുക:\n'+MEMBER_APP_URL);return true;}
+  const history=Array.isArray(member.history)?member.history:[];
+  if(text==='1'){
+   const due=Number(member.balance);
+   if(!Number.isFinite(due))throw new Error('Balance unavailable');
+   await reply('*'+member.name+'*\n\n💰 ആകെ കുടിശ്ശിക: ₹'+due+'\n\nകൂടുതൽ വിവരങ്ങൾ:\n'+MEMBER_APP_URL);
+  }else if(text==='3'){
+   const pending=history.filter(h=>h.status==='Processing').sort((a,b)=>menuMonthOrder(b)-menuMonthOrder(a));
+   const lines=pending.map(h=>h.month+' '+h.year+' — Pending Approval');
+   await reply('*അപേക്ഷയുടെ സ്ഥിതി*\n\n'+(lines.length?lines.join('\n'):'ഇപ്പോൾ approval കാത്തിരിക്കുന്ന അപേക്ഷകളില്ല. Approved/Rejected വിവരങ്ങൾ appലെ Historyയിൽ കാണാം.')+'\n\n'+MEMBER_APP_URL);
+  }else if(text==='4'){
+   const paid=history.filter(h=>h.status==='Paid').sort((a,b)=>{
+    const ad=Date.parse(a.paidAt),bd=Date.parse(b.paidAt);
+    return (Number.isFinite(bd)?bd:0)-(Number.isFinite(ad)?ad:0)||menuMonthOrder(b)-menuMonthOrder(a);
+   });
+   const latest=paid[0];
+   if(!latest)await reply('പണമടച്ചതായി രേഖപ്പെടുത്തിയ മാസങ്ങൾ കണ്ടെത്തിയില്ല.\n'+MEMBER_APP_URL);
+   else await reply('*അവസാന Receipt*\n\nപേര്: '+member.name+'\nമാസം: '+latest.month+' '+latest.year+(Number(latest.amount)>0?'\nതുക: ₹'+latest.amount:'')+'\n\nReceipt download ചെയ്യാൻ app തുറന്ന് Historyയിൽ ഈ മാസം തിരഞ്ഞെടുക്കുക:\n'+MEMBER_APP_URL);
+  }
+ }catch(error){console.error('Menu request failed:',error.message);try{await reply('ഇപ്പോൾ വിവരങ്ങൾ ലഭ്യമല്ല. കുറച്ച് കഴിഞ്ഞ് വീണ്ടും ശ്രമിക്കുക, അല്ലെങ്കിൽ app തുറക്കുക:\n'+MEMBER_APP_URL);}catch(sendError){console.error('Menu reply failed:',sendError.message);}}
+ return true;
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
