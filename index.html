@@ -326,18 +326,20 @@
             position:fixed;inset:0;z-index:99999;background:#ffffff;
             display:flex;align-items:center;justify-content:center;
         }
-        .loader-container { display:flex;flex-direction:column;align-items:center;gap:18px; }
-        .loader-logo-wrap {position:relative;width:120px;height:120px;display:grid;place-items:center;}
+        .loader-container { display:flex;flex-direction:column;align-items:center;gap:8px; }
+        .loader-logo-wrap {position:relative;width:120px;height:120px;display:grid;place-items:center;perspective:650px;transform-style:preserve-3d;}
+        .loader-logo-wrap::after {content:'';position:absolute;width:62px;height:8px;bottom:0;background:#1e3a8a20;border-radius:50%;filter:blur(5px);animation:logo-ground 4s ease-in-out infinite;}
         .loader-logo-wrap::before {content:'';position:absolute;inset:12px;background:radial-gradient(circle,#eff6ff,transparent 70%);border-radius:50%;}
-        .loader-logo {width:94px;height:94px;object-fit:contain;position:relative;filter:drop-shadow(0 7px 12px #1e3a8a12);animation:logo-intro 4s ease-in-out infinite;}
-        .loader-brand {width:240px;height:48px;margin-top:-8px;overflow:visible;}
+        .loader-logo {width:94px;height:94px;object-fit:contain;position:relative;transform-style:preserve-3d;backface-visibility:hidden;filter:drop-shadow(3px 8px 6px #1e3a8a24);animation:logo-intro 4s ease-in-out infinite;}
+        .loader-brand {width:240px;height:48px;margin-top:-16px;overflow:visible;filter:drop-shadow(0 1px 0 #b4c8e5) drop-shadow(0 2px 0 #e0e8f4);}
         .loader-brand text {font-family:'Montserrat',Arial,sans-serif;font-size:25px;font-weight:800;letter-spacing:2px;fill:#1e3a8a;stroke:#1e3a8a;stroke-width:.8;paint-order:stroke;stroke-dasharray:230;animation:brand-write 4s ease-in-out infinite;}
         .loader-writing-mask {animation:brand-reveal 4s linear infinite;}
         .loader-note {font-family:'Montserrat',Arial,sans-serif;font-size:11px;letter-spacing:.08em;color:#94a3b8;margin-top:-6px;}
-        @keyframes logo-intro {0%{opacity:0;transform:translateY(8px) scale(.92);clip-path:inset(0 100% 0 0)}18%{opacity:1;transform:translateY(0) scale(1);clip-path:inset(0 0 0 0)}88%{opacity:1;transform:translateY(0) scale(1);clip-path:inset(0 0 0 0)}100%{opacity:0;transform:translateY(-3px) scale(1);clip-path:inset(0 0 0 0)}}
+        @keyframes logo-intro {0%{opacity:0;transform:translateY(7px) rotateX(12deg) rotateY(-25deg) scale(.92);clip-path:inset(0 100% 0 0)}18%{opacity:1;transform:translateY(0) rotateX(6deg) rotateY(-10deg) scale(1);clip-path:inset(0 0 0 0)}48%{opacity:1;transform:translateY(-4px) rotateX(-5deg) rotateY(13deg) scale(1.02);clip-path:inset(0 0 0 0)}88%{opacity:1;transform:translateY(0) rotateX(5deg) rotateY(-8deg) scale(1);clip-path:inset(0 0 0 0)}100%{opacity:0;transform:translateY(-3px) rotateX(0deg) rotateY(0deg) scale(1);clip-path:inset(0 0 0 0)}}
+        @keyframes logo-ground {0%,100%{opacity:.3;transform:scale(.8)}18%,88%{opacity:.8;transform:scale(1)}48%{opacity:.45;transform:scale(.75)}}
         @keyframes brand-reveal {0%,18%{width:0}60%,90%,100%{width:260px}}
         @keyframes brand-write {0%,18%{stroke-dashoffset:230;fill-opacity:0;stroke-opacity:1;opacity:1}58%{stroke-dashoffset:0;fill-opacity:0;stroke-opacity:1;opacity:1}70%,88%{stroke-dashoffset:0;fill-opacity:1;stroke-opacity:0;opacity:1}100%{stroke-dashoffset:0;fill-opacity:1;stroke-opacity:0;opacity:0}}
-        @media(prefers-reduced-motion:reduce){.loader-logo,.loader-brand text,.loader-writing-mask{animation:none;}.loader-writing-mask{width:260px}.loader-brand text{fill-opacity:1;stroke:none;}}
+        @media(prefers-reduced-motion:reduce){.loader-logo,.loader-logo-wrap::after,.loader-brand text,.loader-writing-mask{animation:none;}.loader-writing-mask{width:260px}.loader-brand text{fill-opacity:1;stroke:none;}}
 
 
         /* പുതിയ ഫ്ലോട്ടിംഗ് ബാർ സ്റ്റൈൽ */
