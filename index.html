@@ -997,6 +997,11 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         </div>
 
         <div id="adminPage" class="hidden p-4 sm:p-6 fade-in">
+            <div class="flex justify-end mb-3">
+                <button type="button" id="adminDataRefresh" onclick="refreshAdminData(this)" class="bg-blue-50 text-blue-700 font-bold px-4 py-2 rounded-xl text-xs border border-blue-100 shadow-sm flex items-center gap-2 active:scale-95" aria-label="Refresh admin data">
+                    <i class="fas fa-sync-alt" aria-hidden="true"></i> Refresh
+                </button>
+            </div>
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-lg font-black text-slate-800 tracking-tight italic">അഡ്മിൻ പാനൽ</h2>
                 <div class="flex gap-2">
@@ -3008,6 +3013,13 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             if(!result?.success||!result.token){showLoader(false);return Swal.fire('പിഴവ്',result?.error||'Backend security update deploy ചെയ്യണം.','error');}
             saveSession(result.token,'admin');return loadAdminData();
         }
+        function refreshAdminData(button) {
+            if (!adminSessionActive || authRole !== 'admin') return Promise.resolve();
+            return holdAction('admin-data-refresh', button, async () => {
+                adminRefreshRevision++;
+                await loadAdminData();
+            });
+        }
         function loadAdminData(loginDigest = null) {
             const generation = adminSessionGeneration;
             const revision = adminRefreshRevision;
@@ -3059,6 +3071,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
                 updateAdminStats(document.getElementById('batchReportFilter')?.value||'all');
                 renderApprovals(pendingApprovalsList);
                 switchAdminTab(activeAdminTab);
+                if(activeAdminTab==='members')filterMembers();
             });
         }
         function switchAdminTab(t) {
