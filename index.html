@@ -482,7 +482,16 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
 </head>
 
 <body class="min-h-screen text-slate-800 pb-10">
-    <div id="loader" role="status" aria-live="polite" aria-label="MUAAWINA loading">
+    <section id="campaignGate" style="position:fixed;inset:0;z-index:100001;background:#fff;display:grid;place-items:center;padding:24px;text-align:center" aria-label="Campaign invitation">
+        <div style="width:100%;max-width:380px">
+            <h1 id="campaignGateTitle" style="font-size:24px;font-weight:800;color:#1e3a8a;margin-bottom:12px">MUAAWINA</h1>
+            <p id="campaignGateDescription" style="color:#64748b;line-height:1.7;white-space:pre-wrap;margin-bottom:24px">ക്യാമ്പയിൻ വിവരങ്ങൾ പരിശോധിക്കുന്നു…</p>
+            <button id="campaignGateJoin" type="button" disabled style="display:none;width:100%;padding:14px;border-radius:12px;background:#1e3a8a;color:white;font-weight:700;margin-bottom:10px">Join Campaign</button>
+            <button id="campaignGateContinue" type="button" onclick="startMuaawinaApp()" style="width:100%;padding:14px;border-radius:12px;background:#eff6ff;color:#1e3a8a;font-weight:700">Continue to App</button>
+        </div>
+    </section>
+
+    <div id="loader" class="hidden" role="status" aria-live="polite" aria-label="MUAAWINA loading">
         <div class="loader-container">
             <div class="loader-logo-wrap"><img src="logo.png" width="94" height="94" class="loader-logo" alt="MUAAWINA Logo" fetchpriority="high"></div>
             <div class="loader-brand" aria-label="MUAAWINA"><span aria-hidden="true" style="--i:0">M</span><span aria-hidden="true" style="--i:1">U</span><span aria-hidden="true" style="--i:2">A</span><span aria-hidden="true" style="--i:3">A</span><span aria-hidden="true" style="--i:4">W</span><span aria-hidden="true" style="--i:5">I</span><span aria-hidden="true" style="--i:6">N</span><span aria-hidden="true" style="--i:7">A</span></div>
@@ -490,7 +499,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         </div>
     </div>
 
-    <div class="max-w-md mx-auto" id="mainApp">
+    <div class="max-w-md mx-auto" id="mainApp" hidden>
 
         <div id="loginPage" class="login-wrapper fade-in fixed inset-0 z-50 overflow-hidden">
             <div class="absolute inset-0 w-full h-full opacity-50 pointer-events-none"
@@ -2182,7 +2191,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         let activeMemberTab = 'home';
         let memberRefreshRevision = 0;
         const apiRequestsInFlight = new Map();
-        const backgroundActions = new Set(['checkPendingApprovals','getMemberData','getAdminData','getHighlights','getAppSettings','getDirectoryData','markAppDownloaded','sendWhatsAppMedia']);
+        const backgroundActions = new Set(['getPosterCampaign','checkPendingApprovals','getMemberData','getAdminData','getHighlights','getAppSettings','getDirectoryData','markAppDownloaded','sendWhatsAppMedia']);
         function saveSession(token, role) {
             authToken = token; authRole = role;
             localStorage.setItem('muaawina_session_token', token);
@@ -2195,7 +2204,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             const token = authToken;
             const generation=authGeneration;
             const key = JSON.stringify({action, data, token});
-            const read = ['getMemberData','getAdminData','getAppSettings','getDirectoryData','getHighlights','checkPendingApprovals'].includes(action);
+            const read = ['getPosterCampaign','getMemberData','getAdminData','getAppSettings','getDirectoryData','getHighlights','checkPendingApprovals'].includes(action);
             if (read && apiRequestsInFlight.has(key)) return apiRequestsInFlight.get(key);
             const focused=document.activeElement?.closest?.('button');
             const button = originButton || (focused&&!focused.closest('.swal2-container')?focused:lastActionButton);
@@ -2222,11 +2231,19 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             if(!result?.success)throw new Error(result?.error||'Notification queue failed');
             return result;
         }
-        window.onload = function() {
+        let appStartupStarted = false;
+        function startMuaawinaApp() {
+            if(appStartupStarted)return;
+            appStartupStarted=true;
+            document.getElementById('campaignGate')?.remove();
+            document.getElementById('mainApp').hidden=false;
             localStorage.removeItem('muaawina_admin_login_hash');
-            if(authToken && authRole==='admin') adminLogin(true);
-            else if(authToken && authRole==='member') fetchMemberDetails(true);
+            if(authToken && authRole==='admin'){showLoader(true,true);adminLogin(true);}
+            else if(authToken && authRole==='member'){showLoader(true,true);fetchMemberDetails(true);}
             else showLoader(false);
+        }
+        window.onload = function() {
+            if(!window.muaawinaCampaignGate)startMuaawinaApp();
         };
 
         // Only initial login blocks the screen. Other requests use their button.
