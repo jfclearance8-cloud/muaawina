@@ -839,7 +839,8 @@ function doPost(e) {
   const output=ContentService.createTextOutput().setMimeType(ContentService.MimeType.JSON);
   try {
     const req=JSON.parse(e.postData.contents);const action=String(req.action||'');const data=req.data||{};let result;
-    if(action==='getAppSettings')result=publicConfig(getAppSettings());
+    if(action==='getPosterCampaign')result=getPosterCampaign();
+    else if(action==='getAppSettings')result=publicConfig(getAppSettings());
     else if(action==='checkPendingApprovals'){requireSession(req.token,'admin');result=checkPendingApprovals();}
     else if(action==='loginMember')result=loginMember(data);
     else if(action==='loginAdmin')result=loginAdmin(data);
@@ -860,7 +861,7 @@ function doPost(e) {
     } else {
       const session=requireSession(req.token);
       const memberId=session.role==='member'?session.id:data.id;
-      const adminActions=['getAdminData','approvePayment','rejectPayment','recordOfflinePayment','processAdminBulkAction','sendDefaulterEmails','sendPushNotification','sendWhatsAppMedia','sendWhatsAppText','uploadPosterPhoto','addHighlight','deleteHighlight','moveHighlight','reorderHighlights','checkAndGetDefaulters','getWhatsAppQueueStatus','retryFailedWhatsAppJobs','inspectTrackerReadiness'];
+      const adminActions=['savePosterCampaign','getAdminData','approvePayment','rejectPayment','recordOfflinePayment','processAdminBulkAction','sendDefaulterEmails','sendPushNotification','sendWhatsAppMedia','sendWhatsAppText','uploadPosterPhoto','addHighlight','deleteHighlight','moveHighlight','reorderHighlights','checkAndGetDefaulters','getWhatsAppQueueStatus','retryFailedWhatsAppJobs','inspectTrackerReadiness'];
       if(adminActions.includes(action)&&session.role!=='admin')throw new Error('FORBIDDEN');
       if(action==='getMemberData'){const r=memberRecord(memberId);result=getMemberData(r.row[2],memberId,true,false,!!data.deferred);}
       else if(action==='getAdminData')result=getAdminData(!!data.deferHighlights);
@@ -890,6 +891,7 @@ function doPost(e) {
       else if(action==='sendWhatsAppText') {enqueueWhatsAppJobs([{endpoint:'/send-message',payload:{phone:data.phone,message:data.message,isGroup:!!data.isGroup}}]);result={success:true,queued:true};}
       else if(action==='sendDefaulterEmails')result=sendDefaulterEmails(data.phones,data.monthStr);
       else if(action==='sendPushNotification')result=sendPushNotification(data.title,data.message);
+      else if(action==='savePosterCampaign')result=savePosterCampaign(data);
       else if(action==='uploadPosterPhoto')result=uploadPosterPhoto(data.base64,data.mimeType,data.fileName);
       else if(action==='addHighlight')result=addHighlight(data.heading,data.url,data.desc);
       else if(action==='deleteHighlight')result=deleteHighlight(data.index);
@@ -1671,4 +1673,21 @@ function reorderHighlights(order,version){
   if(result.length)sheet.getRange(2,1,result.length,width).setValues(result.map(r=>Array.from({length:width},(_,i)=>r[i]===undefined?'':r[i])));
   SpreadsheetApp.flush();return {success:true,highlights:getHighlights()};
  }catch(e){return {error:e.message};}finally{lock.releaseLock();}
+}
+
+// Optional poster campaign: isolated from member/payment sheets.
+function getPosterCampaign() {
+  const raw=PropertiesService.getScriptProperties().getProperty('POSTER_CAMPAIGN');
+  return {success:true,campaign:raw?JSON.parse(raw):{enabled:false}};
+}
+function savePosterCampaign(input) {
+  const c={enabled:input.enabled===true,title:String(input.title||'').trim().slice(0,160),description:String(input.description||'').trim().slice(0,1000),poster:String(input.poster||''),shape:input.shape==='circle'?'circle':'rectangle',font:['Manjari','Raleway','Arial'].indexOf(input.font)>=0?input.font:'Manjari',color:String(input.color||'#183b72')};
+  if(c.poster&&!/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+$/.test(c.poster))throw new Error('Upload a valid campaign poster');
+  if(!/^#[0-9a-f]{6}$/i.test(c.color))throw new Error('Invalid text color');
+  ['photoX','photoY','photoW','photoH','nameX','nameY','nameSize'].forEach(function(k){const n=Number(input[k]);if(!isFinite(n)||n<0||n>100)throw new Error('Invalid layout: '+k);c[k]=n;});
+  if(c.photoW<1||c.photoH<1||c.nameSize<.5||c.nameSize>15||c.photoX+c.photoW>100||c.photoY+c.photoH>100)throw new Error('Photo must fit inside poster');
+  if(c.enabled&&(!c.title||!c.poster))throw new Error('Title and poster are required before enabling');
+  c.updatedAt=new Date().toISOString();
+  PropertiesService.getScriptProperties().setProperty('POSTER_CAMPAIGN',JSON.stringify(c));
+  return {success:true,campaign:c};
 }
