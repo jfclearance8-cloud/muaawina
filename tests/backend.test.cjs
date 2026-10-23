@@ -66,3 +66,13 @@ test('every newly added poster appears first and preserves existing order',()=>{
  let result=f.addHighlight('New poster A','https://example.org/new-a.png','');assert.equal(result.success,true);assert.equal(result.highlights[0].heading,'New poster A');assert.deepEqual(result.highlights.slice(1).map(h=>h.heading),previous);
  result=f.addHighlight('New poster B','https://example.org/new-b.png','');assert.equal(result.highlights[0].heading,'New poster B');assert.equal(result.highlights[1].heading,'New poster A');assert.equal(f.getMemberData(member[2],member[0],true).highlights[0].heading,'New poster B');
 });
+
+test('campaign defaults off and public read does not need a session',()=>{assert.equal(api('getPosterCampaign').campaign.enabled,false)});
+test('campaign settings require admin and never change ledger rows',()=>{
+ const c={enabled:true,title:'ഞാനും പങ്കെടുക്കുന്നു',description:'Join our event',poster:'https://lh3.googleusercontent.com/d/abc123',photoX:10,photoY:15,photoW:40,photoH:45,nameX:50,nameY:80,nameSize:4,font:'Manjari',color:'#183b72',shape:'circle'};
+ const before=JSON.stringify(sheets);assert.ok(api('savePosterCampaign',c).error);
+ const m=f.issueSession('member','M101');assert.ok(api('savePosterCampaign',c,m).error);
+ const a=f.issueSession('admin','admin');assert.equal(api('savePosterCampaign',c,a).success,true);assert.equal(api('getPosterCampaign').campaign.title,c.title);assert.equal(JSON.stringify(sheets),before);
+ assert.ok(api('savePosterCampaign',{...c,photoW:95},a).error);assert.ok(api('savePosterCampaign',{...c,poster:'javascript:alert(1)'},a).error);
+ assert.equal(api('savePosterCampaign',{...c,enabled:false},a).success,true);assert.equal(api('getPosterCampaign').campaign.enabled,false);
+});
