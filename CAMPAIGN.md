@@ -1,0 +1,14 @@
+# Optional poster campaign
+
+## Activate
+1. Replace the Apps Script project's Code.gs with backend/Code.gs, then update the existing web-app deployment to a new version. Keep its current URL and permissions.
+2. Open the app, log in as admin and choose **Campaign** beside Reminder.
+3. Enter heading and invitation, upload a PNG/JPG/WEBP poster (below 7 MB, up to 6000px per side / 20 megapixels).
+4. Set photo left/top/width/height and name center/baseline/size as percentages. Choose shape, font and color; check preview.
+5. Turn Campaign ON and Save. Reload the app to see Join Campaign / Continue to App.
+
+Participants choose a photo, adjust zoom and horizontal/vertical position, enter their name and download a PNG. Photos and participant names are composed locally; no registration list is collected. Both visitors and signed-in members can join. Names support Malayalam and English. The template is public via the existing poster upload facility. Test one real download on target mobile devices after deployment; server deployment and Drive image CORS access cannot be verified by unit tests.
+
+Campaign settings use only the POSTER_CAMPAIGN Script Property; payment and member sheets are untouched. Default is OFF. Turn OFF and Save when finished. Keep campaign.html and campaign.js for reuse, or remove the campaign.js script tag and Campaign button from index.html before deleting the two files. No bot changes or additional sheet setup are needed.
+
+Poster templates may have a transparent photo cutout or an opaque reserved area. Transparent cutouts preserve the frame over the photo; opaque photo areas receive the photo on top. Use a transparent PNG when artwork must overlap the photograph. The admin preview uses a PHOTO placeholder and sample Malayalam name.
