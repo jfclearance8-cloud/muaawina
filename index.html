@@ -970,6 +970,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             <div class="flex justify-between items-center mb-6">
                 <h2 class="text-lg font-black text-slate-800 tracking-tight italic">അഡ്മിൻ പാനൽ</h2>
                 <div class="flex gap-2">
+                    <button type="button" onclick="openPosterCampaign(true)" class="bg-blue-50 text-blue-700 font-bold px-3 py-2 rounded-xl text-xs">Campaign</button>
                     <button onclick="openReminderModal()"
                         class="bg-amber-50 text-amber-600 font-bold px-3 py-2 rounded-xl text-xs active:scale-95 border border-amber-100 shadow-sm flex items-center gap-1.5"><i
                             class="fas fa-bell"></i> റിമൈൻഡർ</button>
@@ -7266,6 +7267,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
         // Preserve Unicode and IME composition in names, headings, and descriptions.
         // Phone, IDs and URLs are validated by their own field/server rules.
     </script>
+<script src="campaign.js"></script>
 </body>
 
 </html>
