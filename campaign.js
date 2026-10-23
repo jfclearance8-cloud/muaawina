@@ -15,14 +15,15 @@
   if(action!=='getPosterCampaign'&&authRole!=='admin')return;
   const result=await callAPI(action,data||{});e.source.postMessage({type:'mua-campaign-result',id,result},location.origin);
  });
- // Keep the normal logo loader until startup and campaign lookup both settle.
+ // Fetch only the invitation first; app login/data starts after Continue.
  startupLoaderHeld=true;
  (async()=>{
-  const results=await Promise.allSettled([startMuaawinaApp(),callAPI('getPosterCampaign')]);
+  const r=await callAPI('getPosterCampaign');
   startupLoaderHeld=false;showLoader(false);
-  const r=results[1].status==='fulfilled'?results[1].value:null,c=r?.campaign;
-  if(!c?.enabled)return;
-  const answer=await Swal.fire({titleText:c.title,text:c.description||'Would you like to join this campaign?',showCancelButton:true,confirmButtonText:'Join Campaign',cancelButtonText:'Continue to App',confirmButtonColor:'#1e3a8a',allowOutsideClick:false});
+  const c=r?.campaign;
+  if(!c?.enabled){await startMuaawinaApp();return;}
+  const answer=await Swal.fire({titleText:c.title,text:c.description||'Would you like to join this campaign?',showCancelButton:true,confirmButtonText:'Join Campaign',cancelButtonText:'Continue to App',confirmButtonColor:'#1e3a8a',allowOutsideClick:false,allowEscapeKey:false});
   if(answer.isConfirmed)openPosterCampaign();
- })().catch(()=>{startupLoaderHeld=false;showLoader(false);});
+  else await startMuaawinaApp();
+ })().catch(()=>{startupLoaderHeld=false;startMuaawinaApp().catch(()=>showLoader(false));});
 })();
