@@ -482,16 +482,8 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
 </head>
 
 <body class="min-h-screen text-slate-800 pb-10">
-    <section id="campaignGate" style="position:fixed;inset:0;z-index:100001;background:#fff;display:grid;place-items:center;padding:24px;text-align:center" aria-label="Campaign invitation">
-        <div style="width:100%;max-width:380px">
-            <h1 id="campaignGateTitle" style="font-size:24px;font-weight:800;color:#1e3a8a;margin-bottom:12px">MUAAWINA</h1>
-            <p id="campaignGateDescription" style="color:#64748b;line-height:1.7;white-space:pre-wrap;margin-bottom:24px">ക്യാമ്പയിൻ വിവരങ്ങൾ പരിശോധിക്കുന്നു…</p>
-            <button id="campaignGateJoin" type="button" disabled style="display:none;width:100%;padding:14px;border-radius:12px;background:#1e3a8a;color:white;font-weight:700;margin-bottom:10px">Join Campaign</button>
-            <button id="campaignGateContinue" type="button" onclick="startMuaawinaApp()" style="width:100%;padding:14px;border-radius:12px;background:#eff6ff;color:#1e3a8a;font-weight:700">Continue to App</button>
-        </div>
-    </section>
 
-    <div id="loader" class="hidden" role="status" aria-live="polite" aria-label="MUAAWINA loading">
+    <div id="loader" role="status" aria-live="polite" aria-label="MUAAWINA loading">
         <div class="loader-container">
             <div class="loader-logo-wrap"><img src="logo.png" width="94" height="94" class="loader-logo" alt="MUAAWINA Logo" fetchpriority="high"></div>
             <div class="loader-brand" aria-label="MUAAWINA"><span aria-hidden="true" style="--i:0">M</span><span aria-hidden="true" style="--i:1">U</span><span aria-hidden="true" style="--i:2">A</span><span aria-hidden="true" style="--i:3">A</span><span aria-hidden="true" style="--i:4">W</span><span aria-hidden="true" style="--i:5">I</span><span aria-hidden="true" style="--i:6">N</span><span aria-hidden="true" style="--i:7">A</span></div>
@@ -2231,16 +2223,18 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             if(!result?.success)throw new Error(result?.error||'Notification queue failed');
             return result;
         }
-        let appStartupStarted = false;
+        let appStartupStarted = false, appStartupPromise = null, startupLoaderHeld = false;
         function startMuaawinaApp() {
-            if(appStartupStarted)return;
+            if(appStartupPromise)return appStartupPromise;
             appStartupStarted=true;
-            document.getElementById('campaignGate')?.remove();
             document.getElementById('mainApp').hidden=false;
-            localStorage.removeItem('muaawina_admin_login_hash');
-            if(authToken && authRole==='admin'){showLoader(true,true);adminLogin(true);}
-            else if(authToken && authRole==='member'){showLoader(true,true);fetchMemberDetails(true);}
-            else showLoader(false);
+            showLoader(true,true);
+            appStartupPromise=Promise.resolve().then(async()=>{
+                localStorage.removeItem('muaawina_admin_login_hash');
+                if(authToken && authRole==='admin')await adminLogin(true);
+                else if(authToken && authRole==='member')await fetchMemberDetails(true);
+            }).finally(()=>{if(!startupLoaderHeld)showLoader(false);});
+            return appStartupPromise;
         }
         window.onload = function() {
             if(!window.muaawinaCampaignGate)startMuaawinaApp();
@@ -2275,6 +2269,7 @@ button[aria-busy="true"] { opacity:.75; cursor:wait; }
             };
         }
         function showLoader(s, waitForPage = false) {
+            if(!s && startupLoaderHeld)return;
             const loader = document.getElementById('loader');
             if (s && waitForPage) loader?.classList.remove('hidden');
             else loader?.classList.add('hidden');
