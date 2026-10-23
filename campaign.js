@@ -6,7 +6,7 @@
   if(overlay)overlay.remove();
   overlay=document.createElement('div');overlay.style.cssText='position:fixed;inset:0;z-index:100000;background:#fff;display:flex;flex-direction:column';
   const close=document.createElement('button');close.textContent='← Continue to App';close.style.cssText='padding:14px;text-align:left;background:#eff6ff;color:#1e3a8a;font-weight:bold';close.onclick=()=>{overlay.remove();overlay=null;frame=null;};
-  frame=document.createElement('iframe');frame.title=editor?'Campaign Settings':'Join Campaign';frame.src='campaign.html'+(editor?'#editor':'');frame.style.cssText='width:100%;flex:1;border:0';overlay.append(close,frame);document.body.append(overlay);
+  frame=document.createElement('iframe');frame.allow='web-share';frame.title=editor?'Campaign Settings':'Join Campaign';frame.src='campaign.html'+(editor?'#editor':'');frame.style.cssText='width:100%;flex:1;min-height:0;border:0';overlay.append(close,frame);document.body.append(overlay);
  };
  window.addEventListener('message',async e=>{
   if(e.origin!==location.origin||!frame||e.source!==frame.contentWindow||e.data?.type!=='mua-campaign')return;
