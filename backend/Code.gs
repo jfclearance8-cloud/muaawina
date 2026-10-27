@@ -1681,7 +1681,7 @@ function getPosterCampaign() {
   return {success:true,campaign:raw?JSON.parse(raw):{enabled:false}};
 }
 function savePosterCampaign(input) {
-  const c={enabled:input.enabled===true,title:String(input.title||'').trim().slice(0,160),description:String(input.description||'').trim().slice(0,1000),poster:String(input.poster||''),shape:input.shape==='circle'?'circle':'rectangle',font:['Manjari','Raleway','Arial'].indexOf(input.font)>=0?input.font:'Manjari',color:String(input.color||'#183b72')};
+  const c={enabled:input.enabled===true,title:String(input.title||'').trim().slice(0,160),description:String(input.description||'').trim().slice(0,1000),poster:String(input.poster||''),shape:input.shape==='circle'?'circle':'rectangle',font:['Manjari','Montserrat','Raleway','Arial'].indexOf(input.font)>=0?input.font:'Manjari',color:String(input.color||'#183b72')};
   c.nameBold=input.nameBold!==false;
   c.nameLayout=input.nameLayout==='stacked'?'stacked':'single';
   c.nameAlign=['left','center','right'].indexOf(input.nameAlign)>=0?input.nameAlign:'center';
