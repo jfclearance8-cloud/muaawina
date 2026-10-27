@@ -76,3 +76,9 @@ test('campaign settings require admin and never change ledger rows',()=>{
  assert.ok(api('savePosterCampaign',{...c,photoW:95},a).error);assert.ok(api('savePosterCampaign',{...c,poster:'javascript:alert(1)'},a).error);
  assert.equal(api('savePosterCampaign',{...c,enabled:false},a).success,true);assert.equal(api('getPosterCampaign').campaign.enabled,false);
 });
+
+test('campaign name layouts persist with backward-compatible defaults',()=>{
+ const a=f.issueSession('admin','admin'),old=api('getPosterCampaign').campaign;
+ let r=api('savePosterCampaign',{...old,nameLayout:'stacked',nameAlign:'left',nameLineCount:3},a);assert.equal(r.success,true);assert.equal(r.campaign.nameLayout,'stacked');assert.equal(r.campaign.nameAlign,'left');assert.equal(api('getPosterCampaign').campaign.nameLineCount,3);
+ r=api('savePosterCampaign',{...old,nameLayout:undefined,nameAlign:undefined,nameLineCount:undefined},a);assert.equal(r.campaign.nameLayout,'single');assert.equal(r.campaign.nameAlign,'center');
+});
