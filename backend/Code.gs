@@ -1686,6 +1686,8 @@ function savePosterCampaign(input) {
   c.nameLayout=input.nameLayout==='stacked'?'stacked':'single';
   c.nameAlign=['left','center','right'].indexOf(input.nameAlign)>=0?input.nameAlign:'center';
   c.nameLineCount=[2,3,4].indexOf(Number(input.nameLineCount))>=0?Number(input.nameLineCount):3;
+  c.useNameBox=input.useNameBox===true;
+  if(c.useNameBox){['nameBoxX','nameBoxY','nameBoxW','nameBoxH'].forEach(function(k){const n=Number(input[k]);if(!isFinite(n)||n<0||n>100)throw new Error('Invalid name box');c[k]=n;});if(c.nameBoxW<1||c.nameBoxH<1||c.nameBoxX+c.nameBoxW>100.000001||c.nameBoxY+c.nameBoxH>100.000001)throw new Error('Name box must fit inside poster');}
   if(c.poster&&!/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+$/.test(c.poster))throw new Error('Upload a valid campaign poster');
   if(!/^#[0-9a-f]{6}$/i.test(c.color))throw new Error('Invalid text color');
   ['photoX','photoY','photoW','photoH','nameX','nameY','nameSize'].forEach(function(k){const n=Number(input[k]);if(!isFinite(n)||n<0||n>100)throw new Error('Invalid layout: '+k);c[k]=n;});
