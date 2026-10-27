@@ -82,3 +82,5 @@ test('campaign name layouts persist with backward-compatible defaults',()=>{
  let r=api('savePosterCampaign',{...old,nameLayout:'stacked',nameAlign:'left',nameLineCount:3},a);assert.equal(r.success,true);assert.equal(r.campaign.nameLayout,'stacked');assert.equal(r.campaign.nameAlign,'left');assert.equal(api('getPosterCampaign').campaign.nameLineCount,3);
  r=api('savePosterCampaign',{...old,nameLayout:undefined,nameAlign:undefined,nameLineCount:undefined},a);assert.equal(r.campaign.nameLayout,'single');assert.equal(r.campaign.nameAlign,'center');
 });
+
+test('campaign bold option persists and old settings default to bold',()=>{const a=f.issueSession('admin','admin'),old=api('getPosterCampaign').campaign;let r=api('savePosterCampaign',{...old,nameBold:false},a);assert.equal(r.campaign.nameBold,false);r=api('savePosterCampaign',{...old,nameBold:true},a);assert.equal(r.campaign.nameBold,true);r=api('savePosterCampaign',{...old,nameBold:undefined},a);assert.equal(r.campaign.nameBold,true)});
