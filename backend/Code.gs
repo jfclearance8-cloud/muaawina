@@ -1682,6 +1682,9 @@ function getPosterCampaign() {
 }
 function savePosterCampaign(input) {
   const c={enabled:input.enabled===true,title:String(input.title||'').trim().slice(0,160),description:String(input.description||'').trim().slice(0,1000),poster:String(input.poster||''),shape:input.shape==='circle'?'circle':'rectangle',font:['Manjari','Raleway','Arial'].indexOf(input.font)>=0?input.font:'Manjari',color:String(input.color||'#183b72')};
+  c.nameLayout=input.nameLayout==='stacked'?'stacked':'single';
+  c.nameAlign=['left','center','right'].indexOf(input.nameAlign)>=0?input.nameAlign:'center';
+  c.nameLineCount=[2,3,4].indexOf(Number(input.nameLineCount))>=0?Number(input.nameLineCount):3;
   if(c.poster&&!/^https:\/\/lh3\.googleusercontent\.com\/d\/[A-Za-z0-9_-]+$/.test(c.poster))throw new Error('Upload a valid campaign poster');
   if(!/^#[0-9a-f]{6}$/i.test(c.color))throw new Error('Invalid text color');
   ['photoX','photoY','photoW','photoH','nameX','nameY','nameSize'].forEach(function(k){const n=Number(input[k]);if(!isFinite(n)||n<0||n>100)throw new Error('Invalid layout: '+k);c[k]=n;});
