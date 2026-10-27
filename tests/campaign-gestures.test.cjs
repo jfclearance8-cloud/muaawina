@@ -12,3 +12,10 @@ assert.equal(G.crop(s,c,.01,anchor).zoom,.25);assert.equal(G.crop(s,c,100,anchor
 near((anchor.x-(30+zoomed.dx))/zoomed.zoom,anchor.x-30);
 near((anchor.y-(37.5+zoomed.dy))/zoomed.zoom,anchor.y-37.5);
 console.log('PASS admin drag bounds, aspect-preserving resize, name resize, reversible focal pinch and zoom limits');
+assert.deepEqual(G.nameLines('Lukmanul Hakeem Al Meerani','stacked',3),['Lukmanul','Hakeem','Al Meerani']);
+assert.deepEqual(G.nameLines('Lukmanul\nHakeem\nAl Meerani','single'),['Lukmanul Hakeem Al Meerani']);
+assert.deepEqual(G.nameLines('ലുഖ്മാൻ\nഹകീം\nഅൽ മീറാനി','stacked',3),['ലുഖ്മാൻ','ഹകീം','അൽ മീറാനി']);
+assert.equal(G.nameLines('One Two Three Four Five Six Seven','stacked',3).join(' '),'One Two Three Four Five Six Seven');
+assert.deepEqual(G.nameLines('Name','stacked',3),['Name']);
+assert.equal(G.nameLines('A\nB\nC\nD\nE','stacked').join(' '),'A B C D E');
+console.log('PASS original single line, automatic stacked example, explicit Malayalam breaks, long names and word preservation');
