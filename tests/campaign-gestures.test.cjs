@@ -19,3 +19,12 @@ assert.equal(G.nameLines('One Two Three Four Five Six Seven','stacked',3).join('
 assert.deepEqual(G.nameLines('Name','stacked',3),['Name']);
 assert.equal(G.nameLines('A\nB\nC\nD\nE','stacked').join(' '),'A B C D E');
 console.log('PASS original single line, automatic stacked example, explicit Malayalam breaks, long names and word preservation');
+const bounded={...c,useNameBox:true,nameBoxX:55,nameBoxY:45,nameBoxW:30,nameBoxH:18};
+const rightEdge=G.resizeNameBox(bounded,50,0,'e');assert.equal(rightEdge.nameBoxW,45);assert.equal(rightEdge.nameBoxX,55);
+const topLeft=G.resizeNameBox(bounded,-10,-15,'wn');assert.equal(topLeft.nameBoxX+topLeft.nameBoxW,85);assert.equal(topLeft.nameBoxY+topLeft.nameBoxH,63);
+const movedBox=G.move(bounded,'name',90,90);assert.equal(movedBox.nameBoxX,70);assert.equal(movedBox.nameBoxY,82);
+const measure=(text,size)=>({width:text.length*size*.6,ascent:size*.8,descent:size*.2,left:0});
+for(const layout of ['single','stacked'])for(const text of ['Lukmanul Hakeem Al Meerani','A very very long full name with many different words','മുഹമ്മദ് അബ്ദുൽ ഹകീം അൽ മീറാനി']){
+ const box={w:80,h:35},r=G.fitName(text,{nameLayout:layout,nameLineCount:3},box,70,measure);assert.ok(r.size>0&&r.size<70);assert.ok(r.height<=box.h+1e-8);assert.ok(r.m.every(m=>m.width<=box.w+1e-8));assert.equal(r.lines.join(' '),text);
+}
+console.log('PASS name box edge resize, bounded movement and width/height text fitting in both name layouts');
