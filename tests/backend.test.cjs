@@ -84,3 +84,9 @@ test('campaign name layouts persist with backward-compatible defaults',()=>{
 });
 
 test('campaign bold option persists and old settings default to bold',()=>{const a=f.issueSession('admin','admin'),old=api('getPosterCampaign').campaign;let r=api('savePosterCampaign',{...old,nameBold:false},a);assert.equal(r.campaign.nameBold,false);r=api('savePosterCampaign',{...old,nameBold:true},a);assert.equal(r.campaign.nameBold,true);r=api('savePosterCampaign',{...old,nameBold:undefined},a);assert.equal(r.campaign.nameBold,true)});
+
+test('campaign name rectangle validates and persists without changing ledger data',()=>{
+ const a=f.issueSession('admin','admin'),old=api('getPosterCampaign').campaign,before=JSON.stringify(sheets),box={...old,useNameBox:true,nameBoxX:55,nameBoxY:45,nameBoxW:30,nameBoxH:18};
+ const r=api('savePosterCampaign',box,a);assert.equal(r.success,true);assert.equal(r.campaign.nameBoxW,30);assert.equal(r.campaign.useNameBox,true);assert.equal(JSON.stringify(sheets),before);
+ assert.ok(api('savePosterCampaign',{...box,nameBoxW:50},a).error);assert.ok(api('savePosterCampaign',{...box,nameBoxH:0},a).error);assert.ok(api('savePosterCampaign',{...box,nameBoxX:'bad'},a).error);
+});
